@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "20812973834",
+    "project_id": "eats-apps",
+    "storage_bucket": "eats-apps.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:20812973834:android:47ffd253ee1366c16bdcf3",
+        "android_client_info": {
+          "package_name": "com.foodapp.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZvgEg5Xg6WFOpbv0dDuwLpDkDmQS89wI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:20812973834:android:32db1d84bd310cf36bdcf3",
+        "android_client_info": {
+          "package_name": "com.foodapp.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZvgEg5Xg6WFOpbv0dDuwLpDkDmQS89wI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
