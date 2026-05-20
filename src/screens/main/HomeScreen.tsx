@@ -114,6 +114,9 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
   }, [isOnline]);
 
+  // Throttle ref to avoid updating Firestore too often
+  const lastFirestoreUpdate = useRef<number>(0);
+
   // GPS tracking — always on for showing driver position
   useEffect(() => {
     watchId.current = Geolocation.watchPosition(
@@ -127,8 +130,9 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             speed: speed ?? 0,
           }),
         );
-        // Write to Firebase RTDB when online
+
         if (isOnline && rider) {
+          // 1. Always update RTDB for real-time map tracking
           database()
             .ref(`liveLocations/${rider.uid}`)
             .set({
@@ -139,7 +143,24 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               updatedAt: Date.now(),
               isOnline: true,
               activeOrderId: null,
-            });
+            })
+            .catch(err => console.log('RTDB write error:', err));
+
+          // 2. Also update Firestore riders doc every 15s so Customer App
+          //    can find this driver even if RTDB rules are restrictive
+          const now = Date.now();
+          if (now - lastFirestoreUpdate.current > 15000) {
+            lastFirestoreUpdate.current = now;
+            firestore()
+              .collection('riders')
+              .doc(rider.uid)
+              .update({
+                currentLat: latitude,
+                currentLng: longitude,
+                updatedAt: now,
+              })
+              .catch(err => console.log('Firestore location update error:', err));
+          }
         }
       },
       error => console.log('Watch error:', error),
