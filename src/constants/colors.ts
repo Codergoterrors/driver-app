@@ -1,5 +1,6 @@
 // Uber Driver App — Design System Colors
-export const Colors = {
+
+export const lightColors = {
   // Primary
   background: '#FFFFFF',
   surface: '#F5F5F5',
@@ -20,21 +21,6 @@ export const Colors = {
   errorRed: '#D32F2F',
   warningOrange: '#F5A623',
 
-  // Earnings Pill
-  earningsPillBg: '#000000',
-  earningsPillText: '#FFFFFF',
-
-  // Bottom Bar
-  bottomBarBg: '#FFFFFF',
-  bottomBarBorder: '#E0E0E0',
-
-  // Map
-  routeColor: '#1A1A1A',
-  routeUpcoming: '#F5A623',
-  pickupPin: '#06C167',
-  dropoffPin: '#D32F2F',
-  riderPin: '#276EF1',
-
   // Misc
   white: '#FFFFFF',
   black: '#000000',
@@ -44,9 +30,45 @@ export const Colors = {
   overlay: 'rgba(0,0,0,0.5)',
   ripple: 'rgba(0,0,0,0.08)',
   shadowColor: '#000000',
-
-  // Status
-  statusOnline: '#06C167',
-  statusOffline: '#9E9E9E',
-  statusBusy: '#F5A623',
+  
+  // Specific markers
+  riderPin: '#276EF1',
 };
+
+export const darkColors = {
+  // Primary
+  background: '#121212',
+  surface: '#1E1E1E',
+  surfaceElevated: '#2A2A2A',
+
+  // Text
+  textPrimary: '#FFFFFF',
+  textSecondary: '#A0A0A0',
+  textDisabled: '#6E6E6E',
+  textInverse: '#000000',
+
+  // Brand
+  primary: '#FFFFFF',
+  goBlue: '#4B8BFF',
+  onlineGreen: '#06C167',
+  onlineGreenDark: '#05A558',
+  offlineGray: '#333333',
+  errorRed: '#E57373',
+  warningOrange: '#FFB74D',
+
+  // Misc
+  white: '#FFFFFF', // Actually keep white as white for some inverse elements
+  black: '#000000', // Keep black for some inverse elements
+  border: '#333333',
+  borderLight: '#2A2A2A',
+  divider: '#333333',
+  overlay: 'rgba(0,0,0,0.7)',
+  ripple: 'rgba(255,255,255,0.08)',
+  shadowColor: '#000000',
+  
+  // Specific markers
+  riderPin: '#4B8BFF',
+};
+
+// Fallback for non-themed components temporarily
+export const Colors = lightColors;

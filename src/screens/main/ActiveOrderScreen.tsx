@@ -207,8 +207,11 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       <MapView ref={mapRef} style={styles.map} provider={PROVIDER_GOOGLE}
         initialRegion={{ ...destCoord, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
         showsUserLocation={false} showsMyLocationButton={false}>
-        <Polyline coordinates={[{ latitude: location.latitude, longitude: location.longitude }, destCoord]}
-          strokeColor="#000000" strokeWidth={4} />
+        {order.routeCoordinates && order.routeCoordinates.length > 0 ? (
+          <Polyline coordinates={order.routeCoordinates} strokeColor="#000000" strokeWidth={4} />
+        ) : (
+          <Polyline coordinates={[{ latitude: location.latitude, longitude: location.longitude }, destCoord]} strokeColor="#000000" strokeWidth={4} />
+        )}
         <Marker coordinate={destCoord} anchor={{ x: 0.5, y: 0.5 }}>
           <View style={[styles.destMarker, { backgroundColor: phase === 'pickup' ? Colors.onlineGreen : Colors.black }]}>
             <Icon name={phase === 'pickup' ? 'silverware-fork-knife' : 'map-marker'} size={16} color={Colors.white} />

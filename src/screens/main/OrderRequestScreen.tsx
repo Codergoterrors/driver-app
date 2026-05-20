@@ -11,7 +11,9 @@ import { Colors, Spacing } from '../../constants';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { setActiveOrder, setIncomingOrder } from '../../store/slices/orderSlice';
 import { formatCurrency, formatDistance, formatDuration, haversineKm, estimatedMinutes } from '../../utils';
+import database from '@react-native-firebase/database';
 import { startOrderSoundWithTimeout, cancelSoundTimer } from '../../utils/soundManager';
+import { useTheme } from '../../theme/ThemeContext';
 import type { Order } from '../../types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -20,6 +22,8 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
   const dispatch = useAppDispatch();
   const incomingOrder = useAppSelector(state => state.order.incomingOrder);
   const location = useAppSelector(state => state.location);
+  const rider = useAppSelector(state => state.auth.rider);
+  const { colors, theme } = useTheme();
   const mapRef = useRef<MapView>(null);
 
   const [timeRemaining, setTimeRemaining] = useState(15);
@@ -76,13 +80,23 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     if (!order) return;
 
     try {
+      console.log('[ACCEPT] Accepting order...', order.orderId);
+      
+      const currentOrder = await firestore().collection('orders').doc(order.orderId).get();
+      const currentTimeline = currentOrder.data()?.statusTimeline || [];
+      const newTimeline = [...currentTimeline, {
+        status: 'PREPARING', timestamp: Date.now(), note: 'Rider accepted delivery',
+      }];
+
+      // Actually assign the rider here
       await firestore().collection('orders').doc(order.orderId).update({
+        riderId: rider?.uid || null,
+        riderName: rider?.name || null,
+        riderPhone: rider?.phone || null,
         status: 'PREPARING',
         acceptedAt: Date.now(),
         updatedAt: Date.now(),
-        statusTimeline: firestore.FieldValue.arrayUnion({
-          status: 'PREPARING', timestamp: Date.now(), note: 'Rider accepted delivery',
-        }),
+        statusTimeline: newTimeline,
       });
 
       dispatch(setActiveOrder(order));
@@ -91,44 +105,34 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     } catch (error) {
       console.error('Error accepting order:', error);
     }
-  }, [order]);
+  }, [order, rider, dispatch, navigation]);
 
   const handleDecline = useCallback(async () => {
     cancelSoundTimer();
     if (timerRef.current) clearInterval(timerRef.current);
-    if (!order) { navigation.goBack(); return; }
-
-    try {
-      await firestore().collection('orders').doc(order.orderId).update({
-        riderId: null, riderName: null, riderPhone: null,
-        status: 'CONFIRMED', updatedAt: Date.now(),
-      });
-    } catch (error) {
-      console.error('Error declining order:', error);
+    
+    // Clear rider's active order ID so they can receive new orders
+    if (rider?.uid) {
+      try {
+        await firestore().collection('riders').doc(rider.uid).update({
+          activeOrderId: null,
+          updatedAt: Date.now(),
+        });
+        await database().ref(`liveLocations/${rider.uid}`).update({
+          activeOrderId: null,
+        });
+      } catch (e) {
+        console.error('Error clearing activeOrderId:', e);
+      }
     }
+
+    if (!order) { navigation.goBack(); return; }
 
     dispatch(setIncomingOrder(null));
     navigation.goBack();
-  }, [order]);
+  }, [order, rider, dispatch, navigation]);
 
   if (!order) return null;
-
-  // Calculate distances and payout
-  const pickupKm = haversineKm(
-    location.latitude || 0, location.longitude || 0,
-    order.restaurantLat || 0, order.restaurantLng || 0,
-  );
-  const deliveryKm = haversineKm(
-    order.restaurantLat || 0, order.restaurantLng || 0,
-    order.deliveryAddress.lat, order.deliveryAddress.lng,
-  );
-  const totalKm = pickupKm + deliveryKm;
-  const totalMin = estimatedMinutes(totalKm);
-
-  // Pricing: pickup free first 2km then ₹7/km, delivery ₹15/km
-  const pickupAmount = pickupKm > 2 ? (pickupKm - 2) * 7 : 0;
-  const deliveryAmount = deliveryKm * 15;
-  const driverPayout = order.driverPayout || Math.round((pickupAmount + deliveryAmount) * 100) / 100;
 
   const restaurantCoord = {
     latitude: order.restaurantLat || location.latitude,
@@ -142,6 +146,17 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     latitude: location.latitude || restaurantCoord.latitude,
     longitude: location.longitude || restaurantCoord.longitude,
   };
+
+  // Calculate distances and payout safely without 16000km bug
+  const pickupKm = haversineKm(riderCoord.latitude, riderCoord.longitude, restaurantCoord.latitude, restaurantCoord.longitude);
+  const deliveryKm = haversineKm(restaurantCoord.latitude, restaurantCoord.longitude, dropCoord.latitude, dropCoord.longitude);
+  const totalKm = pickupKm + deliveryKm;
+  const totalMin = estimatedMinutes(totalKm);
+
+  // Pricing: pickup free first 2km then ₹7/km, delivery ₹15/km
+  const pickupAmount = pickupKm > 2 ? (pickupKm - 2) * 7 : 0;
+  const deliveryAmount = deliveryKm * 15;
+  const driverPayout = order.driverPayout || Math.round((pickupAmount + deliveryAmount) * 100) / 100;
 
   return (
     <View style={styles.container}>
@@ -160,17 +175,26 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
         scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
         showsUserLocation={false}>
 
-        {/* Route: driver to pickup (black line) */}
-        <Polyline
-          coordinates={[riderCoord, restaurantCoord]}
-          strokeColor="#000000" strokeWidth={4}
-          lineDashPattern={[10, 5]}
-        />
-        {/* Route: pickup to drop (black line) */}
-        <Polyline
-          coordinates={[restaurantCoord, dropCoord]}
-          strokeColor="#000000" strokeWidth={4}
-        />
+        {/* Route rendering: If we have real coordinates, use them! Otherwise fallback to straight line */}
+        {order.routeCoordinates && order.routeCoordinates.length > 0 ? (
+          <Polyline
+            coordinates={order.routeCoordinates}
+            strokeColor={colors.primary}
+            strokeWidth={4}
+          />
+        ) : (
+          <>
+            <Polyline
+              coordinates={[riderCoord, restaurantCoord]}
+              strokeColor={colors.primary} strokeWidth={4}
+              lineDashPattern={[10, 5]}
+            />
+            <Polyline
+              coordinates={[restaurantCoord, dropCoord]}
+              strokeColor={colors.primary} strokeWidth={4}
+            />
+          </>
+        )}
 
         {/* Restaurant / pickup marker (green) */}
         <Marker coordinate={restaurantCoord} anchor={{ x: 0.5, y: 0.5 }}>
@@ -196,61 +220,56 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
         </Marker>
       </MapView>
 
-      {/* Bottom card */}
-      <Animated.View style={[styles.bottomCard, { transform: [{ translateY: slideUpAnim }] }]}>
-        {/* Timer progress bar */}
-        <Animated.View style={[styles.timerBar, {
-          width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-        }]} />
-
-        {/* Card header */}
-        <View style={styles.cardHeader}>
-          <View style={styles.deliveryBadgeRow}>
-            <View style={styles.deliveryBadge}>
-              <Icon name="silverware-fork-knife" size={14} color={Colors.white} />
-              <Text style={styles.deliveryBadgeText}>Delivery ({order.items?.length || 1})</Text>
-            </View>
-            <View style={styles.exclusiveBadge}>
-              <Text style={styles.exclusiveText}>Exclusive</Text>
-            </View>
+      {/* Bottom Panel */}
+      <Animated.View style={[styles.bottomPanel, { transform: [{ translateY: slideUpAnim }], backgroundColor: colors.background }]}>
+        {/* Ring & Timer */}
+        <View style={styles.topRow}>
+          <View style={styles.timerContainer}>
+            <Text style={[styles.timerText, { color: colors.textPrimary }]}>{timeRemaining}</Text>
           </View>
-          <TouchableOpacity style={styles.closeBtn} onPress={handleDecline} activeOpacity={0.7}>
-            <Icon name="close" size={22} color={Colors.black} />
-          </TouchableOpacity>
+          <Text style={[styles.ringingText, { color: colors.textPrimary }]}>Incoming Request...</Text>
         </View>
 
-        {/* Earnings amount — accurate */}
-        <Text style={styles.earningsAmount}>{formatCurrency(driverPayout)}</Text>
-        <Text style={styles.earningsSubtext}>
-          Pickup: {formatDistance(pickupKm)} · Delivery: {formatDistance(deliveryKm)}
-        </Text>
-
-        {/* Time and distance */}
-        <View style={styles.divider} />
-        <View style={styles.timeDistanceRow}>
-          <Icon name="clock-outline" size={18} color={Colors.black} />
-          <Text style={styles.timeDistanceText}>
-            {formatDuration(totalMin)} ({formatDistance(totalKm)}) total
-          </Text>
+        {/* Payout & Distance Info */}
+        <View style={styles.metaRow}>
+          <View style={styles.metaCol}>
+            <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>Est. Payout</Text>
+            <Text style={[styles.metaValLarge, { color: colors.textPrimary }]}>{formatCurrency(driverPayout)}</Text>
+          </View>
+          <View style={[styles.metaDivider, { backgroundColor: colors.divider }]} />
+          <View style={styles.metaCol}>
+            <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>Total Dist.</Text>
+            <Text style={[styles.metaVal, { color: colors.textPrimary }]}>{totalKm.toFixed(1)} km</Text>
+          </View>
+          <View style={[styles.metaDivider, { backgroundColor: colors.divider }]} />
+          <View style={styles.metaCol}>
+            <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>Est. Time</Text>
+            <Text style={[styles.metaVal, { color: colors.textPrimary }]}>{totalMin} min</Text>
+          </View>
         </View>
 
         {/* Route summary */}
         <View style={styles.routeSummary}>
           <View style={styles.routeRow}>
             <View style={styles.routeDotGreen} />
-            <Text style={styles.routeText} numberOfLines={2}>{order.restaurantName}</Text>
+            <Text style={[styles.routeText, { color: colors.textPrimary }]} numberOfLines={2}>{order.restaurantName}</Text>
           </View>
-          <View style={styles.routeLine} />
+          <View style={[styles.routeLine, { backgroundColor: colors.divider }]} />
           <View style={styles.routeRow}>
             <View style={styles.routeDotBlack} />
-            <Text style={styles.routeText} numberOfLines={2}>{order.deliveryAddress.fullAddress}</Text>
+            <Text style={[styles.routeText, { color: colors.textPrimary }]} numberOfLines={2}>{order.deliveryAddress.fullAddress}</Text>
           </View>
         </View>
 
-        {/* Accept button */}
-        <TouchableOpacity style={styles.acceptBtn} onPress={handleAccept} activeOpacity={0.85}>
-          <Text style={styles.acceptBtnText}>Accept</Text>
-        </TouchableOpacity>
+        {/* Actions */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={[styles.declineBtn, { backgroundColor: colors.surface }]} onPress={handleDecline}>
+            <Icon name="close" size={28} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.acceptBtn, { backgroundColor: colors.primary }]} onPress={handleAccept}>
+            <Text style={[styles.acceptText, { color: colors.textInverse }]}>Accept Delivery</Text>
+          </TouchableOpacity>
+        </View>
       </Animated.View>
     </View>
   );
@@ -272,52 +291,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: Colors.white,
   },
 
-  // Bottom Card
-  bottomCard: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: Colors.white,
-    borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg, paddingBottom: Spacing.xxxl, elevation: 12,
-    shadowColor: Colors.shadowColor, shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.15, shadowRadius: 16, borderWidth: 2, borderColor: Colors.onlineGreen,
-    borderBottomWidth: 0, overflow: 'hidden',
+  // Bottom Panel
+  bottomPanel: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24,
+    elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1, shadowRadius: 10,
   },
-  timerBar: {
-    position: 'absolute', top: 0, left: 0, height: 4,
-    backgroundColor: Colors.onlineGreen, borderTopLeftRadius: 20,
-  },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 },
+  timerContainer: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
+  timerText: { fontSize: 18, fontWeight: '800' },
+  ringingText: { fontSize: 18, fontWeight: '600' },
 
-  // Header
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm },
-  deliveryBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  deliveryBadge: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.onlineGreen,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, gap: 4,
-  },
-  deliveryBadgeText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
-  exclusiveBadge: { borderWidth: 1, borderColor: Colors.onlineGreen, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
-  exclusiveText: { fontSize: 11, fontWeight: '600', color: Colors.onlineGreen },
-  closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
+  metaCol: { alignItems: 'center', flex: 1 },
+  metaLabel: { fontSize: 12, marginBottom: 4 },
+  metaValLarge: { fontSize: 20, fontWeight: '800' },
+  metaVal: { fontSize: 16, fontWeight: '700' },
+  metaDivider: { width: 1, height: 32 },
 
-  // Amount
-  earningsAmount: { fontSize: 36, fontWeight: '800', color: Colors.black, marginTop: Spacing.xs },
-  earningsSubtext: { fontSize: 13, color: Colors.textSecondary, marginBottom: Spacing.md },
+  routeSummary: { marginBottom: 24, paddingLeft: 4 },
+  routeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  routeDotGreen: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#06C167', marginTop: 5 },
+  routeDotBlack: { width: 10, height: 10, borderRadius: 2, backgroundColor: '#000', marginTop: 5 },
+  routeText: { flex: 1, fontSize: 15, fontWeight: '600', lineHeight: 20 },
+  routeLine: { width: 2, height: 24, marginLeft: 4 },
 
-  // Time/Distance
-  divider: { height: 1, backgroundColor: Colors.divider, marginVertical: Spacing.md },
-  timeDistanceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
-  timeDistanceText: { fontSize: 15, fontWeight: '600', color: Colors.black },
-
-  // Route Summary
-  routeSummary: { marginBottom: Spacing.lg, paddingLeft: Spacing.xs },
-  routeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
-  routeDotGreen: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.onlineGreen, marginTop: 5 },
-  routeDotBlack: { width: 10, height: 10, borderRadius: 2, backgroundColor: Colors.black, marginTop: 5 },
-  routeText: { flex: 1, fontSize: 15, fontWeight: '600', color: Colors.black, lineHeight: 20 },
-  routeLine: { width: 2, height: 24, backgroundColor: Colors.divider, marginLeft: 4 },
-
-  // Accept Button
-  acceptBtn: { backgroundColor: Colors.onlineGreen, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
-  acceptBtnText: { color: Colors.white, fontSize: 18, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', gap: 12 },
+  declineBtn: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
+  acceptBtn: { flex: 1, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
+  acceptText: { fontSize: 18, fontWeight: '700' },
 });
 
 export default OrderRequestScreen;
