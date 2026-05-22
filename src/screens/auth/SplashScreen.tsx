@@ -51,7 +51,7 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           .collection('riders')
           .doc(currentUser.uid)
           .get();
-        if (doc.exists) {
+        if (doc.exists()) {
           dispatch(setRider(doc.data() as Rider));
         } else {
           dispatch(setLoading(false));
