@@ -1,8 +1,9 @@
-// ActiveOrderScreen — Pickup & Delivery with slide buttons, cancel modal, order-not-ready
+// ActiveOrderScreen — Pickup & Delivery with OSRM road routes, Uber-style buttons
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  StatusBar, Animated, Linking, TextInput, PanResponder, Dimensions,
+  StatusBar, Animated, Linking, TextInput, PanResponder,
+  Dimensions, Platform,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import firestore from '@react-native-firebase/firestore';
@@ -18,11 +19,59 @@ import type { Order } from '../../types';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SLIDE_THRESHOLD = SCREEN_WIDTH * 0.6;
 
-// Slide-to-confirm button component
-const SlideButton: React.FC<{ label: string; color: string; onSlideComplete: () => void }> = ({ label, color, onSlideComplete }) => {
-  const { colors } = useTheme();
+// ─── OSRM route fetcher ──────────────────────────────────────────────────────
+async function fetchOSRMRoute(
+  startLat: number, startLng: number,
+  endLat: number, endLng: number,
+): Promise<{ latitude: number; longitude: number }[]> {
+  try {
+    if (startLat === 0 || endLat === 0) return [];
+    const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 8000);
+    const resp = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+    const data = await resp.json();
+    if (data.code === 'Ok' && data.routes?.length) {
+      return data.routes[0].geometry.coordinates.map(
+        ([lng, lat]: [number, number]) => ({ latitude: lat, longitude: lng }),
+      );
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+// ─── Trim past waypoints from route ──────────────────────────────────────────
+// Finds the closest point on the route to the driver and removes everything before it
+function trimPassedRoute(
+  route: { latitude: number; longitude: number }[],
+  driverLat: number, driverLng: number,
+): { latitude: number; longitude: number }[] {
+  if (route.length < 2) return route;
+  let minDist = Infinity;
+  let closestIdx = 0;
+  for (let i = 0; i < route.length; i++) {
+    const d = haversineKm(driverLat, driverLng, route[i].latitude, route[i].longitude);
+    if (d < minDist) { minDist = d; closestIdx = i; }
+  }
+  // Keep from the closest point onward
+  return route.slice(closestIdx);
+}
+
+// ─── Uber-style slide button ──────────────────────────────────────────────────
+const UberSlideButton: React.FC<{
+  label: string;
+  bgColor: string;
+  textColor: string;
+  thumbColor: string;
+  onSlideComplete: () => void;
+}> = ({ label, bgColor, textColor, thumbColor, onSlideComplete }) => {
   const slideX = useRef(new Animated.Value(0)).current;
-  const maxSlide = SCREEN_WIDTH - 120;
+  const trackWidth = SCREEN_WIDTH - 140; // account for cancel button + gaps
+  const thumbSize = 52;
+  const maxSlide = trackWidth - thumbSize - 8;
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -32,29 +81,65 @@ const SlideButton: React.FC<{ label: string; color: string; onSlideComplete: () 
     },
     onPanResponderRelease: (_, g) => {
       if (g.dx > SLIDE_THRESHOLD) {
-        Animated.timing(slideX, { toValue: maxSlide, duration: 200, useNativeDriver: true }).start(() => onSlideComplete());
+        Animated.timing(slideX, { toValue: maxSlide, duration: 150, useNativeDriver: true }).start(() => onSlideComplete());
       } else {
-        Animated.spring(slideX, { toValue: 0, damping: 15, stiffness: 150, useNativeDriver: true }).start();
+        Animated.spring(slideX, { toValue: 0, damping: 18, stiffness: 200, useNativeDriver: true }).start();
       }
     },
   })).current;
 
   return (
-    <View style={[slideStyles.track, { backgroundColor: color + '20' }]}>
-      <Text style={[slideStyles.label, { color }]}>{label}</Text>
-      <Animated.View style={[slideStyles.thumb, { backgroundColor: color, transform: [{ translateX: slideX }] }]} {...panResponder.panHandlers}>
-        <Icon name="chevron-right" size={28} color={color === colors.white || color === '#FFFFFF' ? colors.black : colors.white} />
+    <View style={[uberSlide.track, { backgroundColor: bgColor }]}>
+      {/* Background chevrons (decorative) */}
+      <Animated.View
+        style={[uberSlide.thumb, { backgroundColor: thumbColor, transform: [{ translateX: slideX }] }]}
+        {...panResponder.panHandlers}
+      >
+        <Icon name="arrow-right" size={26} color="#FFF" />
       </Animated.View>
+      <Text style={[uberSlide.label, { color: textColor }]} numberOfLines={1}>{label}</Text>
     </View>
   );
 };
 
-const slideStyles = StyleSheet.create({
-  track: { height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', overflow: 'hidden', position: 'relative' },
+const uberSlide = StyleSheet.create({
+  track: {
+    height: 56, borderRadius: 8, justifyContent: 'center', alignItems: 'center',
+    overflow: 'hidden', position: 'relative', flex: 1,
+  },
   label: { fontSize: 16, fontWeight: '700', position: 'absolute' },
-  thumb: { width: 52, height: 52, borderRadius: 26, justifyContent: 'center', alignItems: 'center', position: 'absolute', left: 2, top: 2 },
+  thumb: {
+    width: 52, height: 52, borderRadius: 6,
+    justifyContent: 'center', alignItems: 'center',
+    position: 'absolute', left: 2, top: 2,
+  },
 });
 
+// ─── Big Red Drop-off Pin ─────────────────────────────────────────────────────
+const RedDropPin: React.FC = () => (
+  <View style={{ alignItems: 'center' }}>
+    <View style={{
+      width: 40, height: 40, borderRadius: 20,
+      backgroundColor: '#E8003D',
+      justifyContent: 'center', alignItems: 'center',
+      borderWidth: 3, borderColor: '#FFF',
+      elevation: 8, shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.4, shadowRadius: 4,
+    }}>
+      <Icon name="map-marker" size={22} color="#FFF" />
+    </View>
+    {/* Pin tip */}
+    <View style={{
+      width: 0, height: 0,
+      borderLeftWidth: 8, borderRightWidth: 8, borderTopWidth: 12,
+      borderLeftColor: 'transparent', borderRightColor: 'transparent',
+      borderTopColor: '#E8003D', marginTop: -2,
+    }} />
+  </View>
+);
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
   const { colors, theme } = useTheme();
   const styles = React.useMemo(() => getStyles(colors, theme), [colors, theme]);
@@ -70,17 +155,21 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   const [showCancel, setShowCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
+  const [notReadyPressed, setNotReadyPressed] = useState(false);
+  const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
   const sheetHeight = useRef(new Animated.Value(160)).current;
   const isCancellingRef = useRef(false);
+  const lastRouteRefetchRef = useRef(0);
+  const lastRouteStartRef = useRef({ lat: 0, lng: 0 });
   const order = activeOrder;
 
+  // ── Order snapshot listener ──────────────────────────────────────────────
   useEffect(() => {
     if (!order) return;
     const unsub = firestore().collection('orders').doc(order.orderId)
       .onSnapshot(doc => {
         if (doc.exists()) {
           const data = { orderId: doc.id, ...doc.data() } as Order;
-          // Don't override Redux state if we're in the middle of cancelling
           if (isCancellingRef.current) return;
           dispatch(setActiveOrder(data));
           if (data.status === 'PICKED_UP' || data.status === 'ON_THE_WAY') setPhase('delivery');
@@ -88,28 +177,77 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
             dispatch(clearOrder());
             navigation.replace('Home');
           }
+          // Sync notReadyPressed with Firestore
+          if (data.orderNotReady) setNotReadyPressed(true);
+          if (!data.orderNotReady) setNotReadyPressed(false);
         }
       });
     return () => unsub();
   }, [order?.orderId]);
 
-  useEffect(() => {
+  // ── Fetch & maintain OSRM route ──────────────────────────────────────────
+  const fetchRoute = useCallback(async (fromLat: number, fromLng: number) => {
     if (!order) return;
+    const toLat = phase === 'pickup' ? (order.restaurantLat || 0) : order.deliveryAddress.lat;
+    const toLng = phase === 'pickup' ? (order.restaurantLng || 0) : order.deliveryAddress.lng;
+    const coords = await fetchOSRMRoute(fromLat, fromLng, toLat, toLng);
+    if (coords.length > 0) {
+      setRouteCoords(coords);
+      lastRouteStartRef.current = { lat: fromLat, lng: fromLng };
+      lastRouteRefetchRef.current = Date.now();
+    } else {
+      // Fallback to straight line
+      setRouteCoords([
+        { latitude: fromLat, longitude: fromLng },
+        { latitude: toLat, longitude: toLng },
+      ]);
+    }
+  }, [order, phase]);
+
+  // ── Initial route fetch when phase/order changes ─────────────────────────
+  useEffect(() => {
+    if (!order || location.latitude === 0) return;
+    fetchRoute(location.latitude, location.longitude);
+    // Fit map
     const dest = phase === 'pickup'
       ? { latitude: order.restaurantLat || 0, longitude: order.restaurantLng || 0 }
       : { latitude: order.deliveryAddress.lat, longitude: order.deliveryAddress.lng };
     const coords = [
-      { latitude: location.latitude || 0, longitude: location.longitude || 0 },
+      { latitude: location.latitude, longitude: location.longitude },
       dest,
     ];
     setTimeout(() => {
       mapRef.current?.fitToCoordinates(coords, {
         edgePadding: { top: 120, right: 60, bottom: 280, left: 60 }, animated: true,
       });
-    }, 500);
-  }, [phase, order]);
+    }, 800);
+  }, [phase, order?.orderId]);
 
-  // Write live location to RTDB continuously
+  // ── Location update: trim route + reroute if off-track ───────────────────
+  useEffect(() => {
+    if (!order || location.latitude === 0 || routeCoords.length === 0) return;
+
+    // 1. Trim already-passed waypoints
+    const trimmed = trimPassedRoute(routeCoords, location.latitude, location.longitude);
+    if (trimmed.length !== routeCoords.length) {
+      setRouteCoords(trimmed);
+    }
+
+    // 2. Check if driver deviated >60m from nearest route point
+    const nearestDist = trimmed.length > 0
+      ? haversineKm(location.latitude, location.longitude, trimmed[0].latitude, trimmed[0].longitude)
+      : 999;
+
+    const now = Date.now();
+    const timeSinceLastFetch = now - lastRouteRefetchRef.current;
+
+    // Reroute if deviated more than 60m AND at least 20s have passed since last fetch
+    if (nearestDist > 0.06 && timeSinceLastFetch > 20000) {
+      fetchRoute(location.latitude, location.longitude);
+    }
+  }, [location.latitude, location.longitude]);
+
+  // ── Write live location to RTDB ──────────────────────────────────────────
   useEffect(() => {
     if (!rider || !order || location.latitude === 0) return;
     database().ref(`liveLocations/${rider.uid}`).update({
@@ -120,7 +258,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   }, [location.latitude, location.longitude, rider, order]);
 
   const toggleSheet = () => {
-    const target = sheetExpanded ? 160 : 500;
+    const target = sheetExpanded ? 160 : 520;
     Animated.spring(sheetHeight, { toValue: target, damping: 20, stiffness: 120, useNativeDriver: false }).start();
     setSheetExpanded(!sheetExpanded);
   };
@@ -142,6 +280,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       statusTimeline: firestore.FieldValue.arrayUnion({ status: 'PICKED_UP', timestamp: Date.now(), note: 'Order picked up by rider' }),
     });
     setPhase('delivery');
+    setRouteCoords([]); // Will refetch from driver location for delivery leg
   }, [order]);
 
   const handleCompleteDelivery = useCallback(async () => {
@@ -170,11 +309,19 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
     await firestore().collection('orders').doc(order.orderId).update({
       orderNotReady: true, updatedAt: Date.now(),
     });
+    setNotReadyPressed(true);
+  }, [order]);
+
+  const handleOrderReady = useCallback(async () => {
+    if (!order) return;
+    await firestore().collection('orders').doc(order.orderId).update({
+      orderNotReady: false, updatedAt: Date.now(),
+    });
+    setNotReadyPressed(false);
   }, [order]);
 
   const handleCancelOrder = useCallback(async () => {
     if (!order || !cancelReason) return;
-    // Set guard to prevent listener from overriding state during cancel
     isCancellingRef.current = true;
     try {
       await firestore().collection('orders').doc(order.orderId).update({
@@ -186,11 +333,9 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         await firestore().collection('riders').doc(rider.uid).update({ activeOrderId: null, updatedAt: Date.now() });
         await database().ref(`liveLocations/${rider.uid}`).update({ activeOrderId: null });
       }
-      // Navigate FIRST — clearOrder causes order=null which unmounts this component via `if (!order) return null`
       setShowConfirmCancel(false);
       setShowCancel(false);
       navigation.replace('Home');
-      // Clear Redux state AFTER navigation has started (delay to avoid unmount race)
       setTimeout(() => {
         dispatch(clearOrder());
         isCancellingRef.current = false;
@@ -216,9 +361,19 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   const deliveryReasons = ['Customer is not picking up the call', 'The address is wrong', 'Customer not available', 'Unsafe area', 'Vehicle issue', 'Other'];
   const cancelReasons = phase === 'pickup' ? pickupReasons : deliveryReasons;
 
+  // Display route: use OSRM if available, else straight line
+  const displayRoute = routeCoords.length >= 2
+    ? routeCoords
+    : location.latitude !== 0 ? [
+        { latitude: location.latitude, longitude: location.longitude },
+        destCoord,
+      ] : [];
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+
+      {/* Address bar at top */}
       <View style={styles.addressBar}>
         <Icon name="map-marker" size={20} color={colors.background} />
         <Text style={styles.addressText} numberOfLines={2}>
@@ -226,30 +381,37 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         </Text>
       </View>
 
+      {/* Map */}
       <MapView ref={mapRef} style={styles.map} provider={PROVIDER_GOOGLE}
         customMapStyle={theme === 'dark' ? darkMapStyle : undefined}
         initialRegion={{ ...destCoord, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
         showsUserLocation={false} showsMyLocationButton={false}>
-        {/* Route polyline: during pickup show driver→restaurant, during delivery use OSRM route or straight line */}
-        {phase === 'pickup' ? (
+
+        {/* Route polyline — OSRM road-following, bold and dark */}
+        {displayRoute.length >= 2 && (
           <Polyline
-            coordinates={[
-              { latitude: location.latitude, longitude: location.longitude },
-              destCoord,
-            ]}
-            strokeColor={colors.routeColor || '#000000'}
-            strokeWidth={4}
+            coordinates={displayRoute}
+            strokeColor="#1A1A2E"
+            strokeWidth={6}
+            lineCap="round"
+            lineJoin="round"
           />
-        ) : order.routeCoordinates && order.routeCoordinates.length > 0 ? (
-          <Polyline coordinates={order.routeCoordinates} strokeColor={colors.routeColor || '#000000'} strokeWidth={4} />
-        ) : (
-          <Polyline coordinates={[{ latitude: location.latitude, longitude: location.longitude }, destCoord]} strokeColor={colors.routeColor || '#000000'} strokeWidth={4} />
         )}
-        <Marker coordinate={destCoord} anchor={{ x: 0.5, y: 0.5 }}>
-          <View style={[styles.destMarker, { backgroundColor: phase === 'pickup' ? colors.onlineGreen : colors.textPrimary }]}>
-            <Icon name={phase === 'pickup' ? 'silverware-fork-knife' : 'map-marker'} size={16} color={phase === 'pickup' ? colors.white : colors.background} />
-          </View>
-        </Marker>
+
+        {/* Destination marker */}
+        {phase === 'pickup' ? (
+          <Marker coordinate={destCoord} anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={[styles.destMarker, { backgroundColor: colors.onlineGreen }]}>
+              <Icon name="silverware-fork-knife" size={16} color={colors.white} />
+            </View>
+          </Marker>
+        ) : (
+          <Marker coordinate={destCoord} anchor={{ x: 0.5, y: 1 }}>
+            <RedDropPin />
+          </Marker>
+        )}
+
+        {/* Driver marker */}
         {location.latitude !== 0 && (
           <Marker coordinate={{ latitude: location.latitude, longitude: location.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.riderMarker}><Icon name="navigation" size={18} color={colors.white} /></View>
@@ -257,6 +419,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         )}
       </MapView>
 
+      {/* Navigate button */}
       <TouchableOpacity style={styles.navigateBtn} onPress={openNavigation} activeOpacity={0.85}>
         <Icon name="navigation-variant" size={18} color={colors.background} />
         <Text style={styles.navigateBtnText}>Navigate</Text>
@@ -276,39 +439,76 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         {sheetExpanded && (
           <ScrollView style={styles.sheetContent} showsVerticalScrollIndicator={false}>
             {phase === 'pickup' ? (
+              // ─── PICKUP PHASE (Uber Eats style) ───────────────────────────
               <View>
+                {/* Restaurant name — large */}
                 <Text style={styles.restaurantName}>{order.restaurantName}</Text>
+
+                {/* Separator */}
+                <View style={styles.sectionDividerLine} />
+
+                {/* Restaurant address */}
                 <View style={styles.addressRow}>
-                  <Icon name="map-marker" size={18} color={colors.textSecondary} />
+                  <Icon name="map-marker" size={16} color={colors.textSecondary} />
                   <Text style={styles.addressDetail}>{order.restaurantAddress || order.restaurantName}</Text>
                 </View>
+
                 <View style={styles.divider} />
-                <Text style={styles.pickupCount}>{order.items.length} order for pick-up</Text>
+
+                {/* Pickup count */}
+                <Text style={styles.pickupCount}>1 order for pick-up</Text>
+
+                {/* Customer row */}
                 <View style={styles.customerRow}>
-                  <View>
+                  <View style={{ flex: 1 }}>
                     <Text style={styles.customerName}>{order.customerName || 'Customer'}</Text>
-                    <Text style={styles.orderCode}>{shortOrderId(order.orderId)} · {order.items.length} items</Text>
+                    <Text style={styles.orderCode}>{shortOrderId(order.orderId)} · {order.items.length} item{order.items.length !== 1 ? 's' : ''}</Text>
                   </View>
-                  <TouchableOpacity style={styles.detailsBtn} onPress={() => navigation.navigate('OrderDetails', { orderId: order.orderId })}>
+                  <TouchableOpacity
+                    style={styles.detailsBtn}
+                    onPress={() => navigation.navigate('OrderDetails', { orderId: order.orderId })}
+                  >
                     <Text style={styles.detailsBtnText}>Details</Text>
                   </TouchableOpacity>
                 </View>
-                {/* Order not ready button */}
-                <TouchableOpacity style={styles.notReadyBtn} onPress={handleOrderNotReady} activeOpacity={0.7}>
-                  <Icon name="clock-alert-outline" size={18} color={colors.warningOrange} />
-                  <Text style={styles.notReadyText}>Order not ready</Text>
+
+                {/* "How was your pick-up?" */}
+                <Text style={styles.howWasPickup}>How was your pick-up?</Text>
+
+                {/* Order Not Ready / Order Ready buttons */}
+                <TouchableOpacity
+                  style={styles.notReadyBtn}
+                  onPress={notReadyPressed ? handleOrderReady : handleOrderNotReady}
+                  activeOpacity={0.7}
+                >
+                  <Icon
+                    name={notReadyPressed ? 'check-circle-outline' : 'clock-alert-outline'}
+                    size={18}
+                    color={notReadyPressed ? colors.onlineGreen : colors.warningOrange}
+                  />
+                  <Text style={[styles.notReadyText, { color: notReadyPressed ? colors.onlineGreen : colors.warningOrange }]}>
+                    {notReadyPressed ? 'Order Ready' : 'Order not ready'}
+                  </Text>
                 </TouchableOpacity>
+
                 <View style={styles.divider} />
+
+                {/* Action row: cancel (triangle) + start delivery slide button */}
                 <View style={styles.actionRow}>
                   <TouchableOpacity style={styles.warningBtn} onPress={() => setShowCancel(true)}>
                     <Icon name="alert" size={24} color={colors.warningOrange} />
                   </TouchableOpacity>
-                  <View style={{ flex: 1 }}>
-                    <SlideButton label="Slide to start delivery" color={colors.onlineGreen} onSlideComplete={handleStartDelivery} />
-                  </View>
+                  <UberSlideButton
+                    label="→  Start delivery"
+                    bgColor="#06C167"
+                    textColor="#FFF"
+                    thumbColor="#038F4A"
+                    onSlideComplete={handleStartDelivery}
+                  />
                 </View>
               </View>
             ) : (
+              // ─── DELIVERY PHASE ────────────────────────────────────────────
               <View>
                 <View style={styles.etaRow}>
                   <Text style={styles.etaText}>{formatDuration(estMin)}</Text>
@@ -328,14 +528,18 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
                     value={pinInput} onChangeText={t => { setPinInput(t); setPinError(false); }} keyboardType="numeric" maxLength={4} />
                   {pinError && <Text style={styles.pinErrorText}>Incorrect PIN. Try again.</Text>}
                 </View>
+                {/* Action row: cancel + end delivery slide (red) */}
                 <View style={styles.actionRow}>
                   <TouchableOpacity style={styles.warningBtn} onPress={() => setShowCancel(true)}>
                     <Icon name="alert" size={24} color={colors.warningOrange} />
                   </TouchableOpacity>
-                  <View style={{ flex: 1 }}>
-                    <SlideButton label="Slide to deliver" color={colors.textPrimary}
-                      onSlideComplete={handleCompleteDelivery} />
-                  </View>
+                  <UberSlideButton
+                    label="→  End Delivery"
+                    bgColor="#E8003D"
+                    textColor="#FFF"
+                    thumbColor="#A80029"
+                    onSlideComplete={handleCompleteDelivery}
+                  />
                 </View>
               </View>
             )}
@@ -343,7 +547,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         )}
       </Animated.View>
 
-      {/* Cancel Modal — Full screen */}
+      {/* Cancel Modal */}
       {showCancel && !showConfirmCancel && (
         <View style={styles.cancelOverlay}>
           <View style={styles.cancelSheet}>
@@ -357,7 +561,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
             <Text style={styles.cancelSubtitle}>What's the issue?</Text>
             <ScrollView>
               {cancelReasons.map(reason => (
-                <TouchableOpacity key={reason} style={[styles.cancelOption, cancelReason === reason && styles.cancelOptionSelected]}
+                <TouchableOpacity key={reason} style={styles.cancelOption}
                   onPress={() => { setCancelReason(reason); setShowConfirmCancel(true); }} activeOpacity={0.7}>
                   <Icon name="alert-circle-outline" size={22} color={colors.errorRed} />
                   <Text style={styles.cancelOptionText}>{reason}</Text>
@@ -369,7 +573,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         </View>
       )}
 
-      {/* Confirm cancel bottom sheet */}
+      {/* Confirm cancel */}
       {showConfirmCancel && (
         <View style={styles.cancelOverlay}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowConfirmCancel(false)} />
@@ -394,31 +598,80 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
 const getStyles = (colors: any, theme: string) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   map: { ...StyleSheet.absoluteFill, width: '100%', height: '100%' },
-  addressBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', paddingTop: (StatusBar.currentHeight || 44) + 8, paddingBottom: 12, paddingHorizontal: Spacing.lg, gap: Spacing.sm, zIndex: 10 },
+  addressBar: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    backgroundColor: colors.primary,
+    flexDirection: 'row', alignItems: 'center',
+    paddingTop: (StatusBar.currentHeight || 44) + 8,
+    paddingBottom: 12, paddingHorizontal: Spacing.lg, gap: Spacing.sm, zIndex: 10,
+  },
   addressText: { flex: 1, color: colors.background, fontSize: 16, fontWeight: '700' },
-  destMarker: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: colors.background },
-  riderMarker: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.riderPin, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: colors.white },
-  navigateBtn: { position: 'absolute', bottom: 175, right: Spacing.lg, flexDirection: 'row', backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, alignItems: 'center', gap: 6, elevation: 6 },
+  destMarker: {
+    width: 32, height: 32, borderRadius: 16,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: colors.background,
+  },
+  riderMarker: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: colors.riderPin,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: colors.white,
+  },
+  navigateBtn: {
+    position: 'absolute', bottom: 175, right: Spacing.lg,
+    flexDirection: 'row', backgroundColor: colors.primary,
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderRadius: 24, alignItems: 'center', gap: 6, elevation: 6,
+  },
   navigateBtnText: { color: colors.background, fontSize: 14, fontWeight: '700' },
-  bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: Spacing.xl, elevation: 10 },
-  dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.offlineGray, alignSelf: 'center', marginTop: 8, marginBottom: 10 },
-  statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10 },
+  bottomSheet: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    paddingHorizontal: Spacing.xl, elevation: 10,
+  },
+  dragHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: colors.offlineGray,
+    alignSelf: 'center', marginTop: 8, marginBottom: 10,
+  },
+  statusRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', paddingBottom: 10,
+  },
   statusLabelText: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
   sheetContent: { flex: 1, paddingBottom: 40 },
-  restaurantName: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, marginBottom: 8 },
-  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: Spacing.md },
-  addressDetail: { flex: 1, fontSize: 14, color: colors.textSecondary },
+
+  // ── Pickup screen styles (Uber Eats style) ──
+  restaurantName: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, marginBottom: 10 },
+  sectionDividerLine: { height: 1, backgroundColor: colors.divider, marginBottom: 10 },
+  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: Spacing.sm },
+  addressDetail: { flex: 1, fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
   divider: { height: 1, backgroundColor: colors.divider, marginVertical: Spacing.md },
-  pickupCount: { fontSize: 14, color: colors.textSecondary, marginBottom: Spacing.md },
-  customerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  customerName: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  pickupCount: { fontSize: 14, color: colors.textSecondary, marginBottom: Spacing.sm },
+  customerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  customerName: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
   orderCode: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  detailsBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  detailsBtn: {
+    borderWidth: 1, borderColor: colors.border,
+    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8,
+  },
   detailsBtnText: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
-  notReadyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme === 'dark' ? '#2A2100' : '#FFF8E1', borderRadius: 8, padding: 12, marginVertical: Spacing.md },
-  notReadyText: { fontSize: 14, fontWeight: '600', color: colors.warningOrange },
+  howWasPickup: { fontSize: 14, color: colors.textSecondary, marginTop: 12, marginBottom: 8 },
+  notReadyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: theme === 'dark' ? '#2A2100' : '#FFF8E1',
+    borderRadius: 8, padding: 12, marginBottom: Spacing.sm,
+  },
+  notReadyText: { fontSize: 14, fontWeight: '600' },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: 20 },
-  warningBtn: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: colors.border, justifyContent: 'center', alignItems: 'center' },
+  warningBtn: {
+    width: 52, height: 56, borderRadius: 8,
+    borderWidth: 2, borderColor: colors.border,
+    justifyContent: 'center', alignItems: 'center',
+  },
+
+  // ── Delivery phase styles ──
   etaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, justifyContent: 'center' },
   etaText: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
   customerNameLg: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, marginVertical: 8 },
@@ -427,18 +680,34 @@ const getStyles = (colors: any, theme: string) => StyleSheet.create({
   pinCard: { backgroundColor: colors.surface, borderRadius: 12, padding: Spacing.lg, marginBottom: Spacing.lg },
   pinOrderCode: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
   pinRestaurant: { fontSize: 13, color: colors.textSecondary, marginTop: 2, marginBottom: Spacing.md },
-  pinInput: { backgroundColor: colors.background, borderRadius: 8, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: colors.textPrimary, textAlign: 'center', fontWeight: '700', letterSpacing: 4 },
+  pinInput: {
+    backgroundColor: colors.background, borderRadius: 8, borderWidth: 1,
+    borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 12,
+    fontSize: 16, color: colors.textPrimary, textAlign: 'center',
+    fontWeight: '700', letterSpacing: 4,
+  },
   pinErrorText: { color: colors.errorRed, fontSize: 12, marginTop: 4, textAlign: 'center' },
-  // Cancel overlay
+
+  // ── Cancel overlay ──
   cancelOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 100 },
-  cancelSheet: { backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.xl, maxHeight: '85%', flex: 1 },
+  cancelSheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: Spacing.xl, maxHeight: '85%', flex: 1,
+  },
   cancelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.lg },
   cancelTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
   cancelSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: Spacing.md },
-  cancelOption: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
-  cancelOptionSelected: { backgroundColor: colors.surface },
+  cancelOption: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.borderLight,
+  },
   cancelOptionText: { fontSize: 15, fontWeight: '500', color: colors.textPrimary, flex: 1 },
-  confirmSheet: { backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.xl, paddingBottom: 40 },
+  confirmSheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: Spacing.xl, paddingBottom: 40,
+  },
   confirmHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.offlineGray, alignSelf: 'center', marginBottom: 20 },
   confirmText: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, textAlign: 'center', marginBottom: 8 },
   confirmSubtext: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: 24 },
