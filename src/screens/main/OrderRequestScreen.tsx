@@ -95,14 +95,21 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
       }
 
       const currentTimeline = currentOrderSnap.data()?.statusTimeline || [];
-      const newTimeline = [...currentTimeline, {
-        status: 'PREPARING', timestamp: Date.now(), note: 'Rider accepted delivery',
-      }];
+      const newTimeline = [
+        ...currentTimeline,
+        { status: 'RIDER_ASSIGNED', timestamp: Date.now(), note: 'Rider accepted delivery' },
+        { status: 'PREPARING', timestamp: Date.now(), note: 'Preparing order' },
+      ];
 
+      // Set actual riderId (promote from proposedRiderId), clear proposed fields,
+      // and set status to PREPARING so Customer App updates
       await firestore().collection('orders').doc(order.orderId).update({
         riderId: rider?.uid || null,
         riderName: rider?.name || null,
         riderPhone: rider?.phone || null,
+        proposedRiderId: null,
+        proposedRiderName: null,
+        proposedRiderPhone: null,
         status: 'PREPARING',
         acceptedAt: Date.now(),
         updatedAt: Date.now(),
@@ -124,12 +131,12 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     if (!order) { navigation.goBack(); return; }
 
     try {
-      // Unassign rider from order so it can be re-dispatched
+      // Clear proposed rider from order so it can be re-dispatched
       await firestore().collection('orders').doc(order.orderId).update({
-        riderId: null,
-        riderName: null,
-        riderPhone: null,
-        status: 'PENDING',
+        proposedRiderId: null,
+        proposedRiderName: null,
+        proposedRiderPhone: null,
+        status: 'PLACED',
         declinedAt: Date.now(),
         updatedAt: Date.now(),
       });
