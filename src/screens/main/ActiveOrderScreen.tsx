@@ -186,10 +186,15 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         await firestore().collection('riders').doc(rider.uid).update({ activeOrderId: null, updatedAt: Date.now() });
         await database().ref(`liveLocations/${rider.uid}`).update({ activeOrderId: null });
       }
-      dispatch(clearOrder());
+      // Navigate FIRST — clearOrder causes order=null which unmounts this component via `if (!order) return null`
       setShowConfirmCancel(false);
       setShowCancel(false);
       navigation.replace('Home');
+      // Clear Redux state AFTER navigation has started (delay to avoid unmount race)
+      setTimeout(() => {
+        dispatch(clearOrder());
+        isCancellingRef.current = false;
+      }, 300);
     } catch (error) {
       console.error('Error cancelling order:', error);
       isCancellingRef.current = false;
@@ -225,7 +230,17 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         customMapStyle={theme === 'dark' ? darkMapStyle : undefined}
         initialRegion={{ ...destCoord, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
         showsUserLocation={false} showsMyLocationButton={false}>
-        {order.routeCoordinates && order.routeCoordinates.length > 0 ? (
+        {/* Route polyline: during pickup show driver→restaurant, during delivery use OSRM route or straight line */}
+        {phase === 'pickup' ? (
+          <Polyline
+            coordinates={[
+              { latitude: location.latitude, longitude: location.longitude },
+              destCoord,
+            ]}
+            strokeColor={colors.routeColor || '#000000'}
+            strokeWidth={4}
+          />
+        ) : order.routeCoordinates && order.routeCoordinates.length > 0 ? (
           <Polyline coordinates={order.routeCoordinates} strokeColor={colors.routeColor || '#000000'} strokeWidth={4} />
         ) : (
           <Polyline coordinates={[{ latitude: location.latitude, longitude: location.longitude }, destCoord]} strokeColor={colors.routeColor || '#000000'} strokeWidth={4} />
