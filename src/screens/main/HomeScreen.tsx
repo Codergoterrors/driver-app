@@ -18,8 +18,9 @@ import Geolocation from '@react-native-community/geolocation';
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { Colors, Spacing } from '../../constants';
+import { Spacing, darkMapStyle } from '../../constants';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
+import { useTheme } from '../../theme/ThemeContext';
 import { setOnline, setIncomingOrder } from '../../store/slices/orderSlice';
 import { updateLocation } from '../../store/slices/locationSlice';
 import { updateRider } from '../../store/slices/authSlice';
@@ -31,6 +32,8 @@ const BOTTOM_PANEL_COLLAPSED = 120;
 const BOTTOM_PANEL_EXPANDED = SCREEN_HEIGHT * 0.55;
 
 const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const { colors, theme } = useTheme();
+  const styles = React.useMemo(() => getStyles(colors, theme), [colors, theme]);
   const dispatch = useAppDispatch();
   const rider = useAppSelector(state => state.auth.rider);
   const isOnline = useAppSelector(state => state.order.isOnline);
@@ -324,6 +327,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
+        customMapStyle={theme === 'dark' ? darkMapStyle : undefined}
         initialRegion={{
           latitude: location.latitude || 18.5204,
           longitude: location.longitude || 73.8567,
@@ -350,7 +354,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                     transform: [{ rotate: `${location.heading || 0}deg` }],
                   },
                 ]}>
-                <Icon name="navigation" size={20} color={Colors.white} />
+                <Icon name="navigation" size={20} color={colors.white} />
               </View>
             </View>
           </Marker>
@@ -363,7 +367,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           style={styles.topBarBtn}
           onPress={() => navigation.openDrawer()}
           activeOpacity={0.7}>
-          <Icon name="menu" size={24} color={Colors.black} />
+          <Icon name="menu" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
 
         <View style={styles.earningsPill}>
@@ -373,7 +377,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </View>
 
         <TouchableOpacity style={styles.topBarBtn} activeOpacity={0.7}>
-          <Icon name="magnify" size={24} color={Colors.black} />
+          <Icon name="magnify" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
@@ -389,7 +393,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         style={styles.relocateBtn}
         onPress={handleRelocate}
         activeOpacity={0.7}>
-        <Icon name="crosshairs-gps" size={22} color={Colors.black} />
+        <Icon name="crosshairs-gps" size={22} color={colors.textPrimary} />
       </TouchableOpacity>
 
       {/* GO Button (visible only when offline) */}
@@ -434,7 +438,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <TouchableOpacity
             onPress={() => navigation.navigate('Preferences')}
             activeOpacity={0.6}>
-            <Icon name="tune-variant" size={24} color={Colors.black} />
+            <Icon name="tune-variant" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
 
           <Text
@@ -449,7 +453,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             <Icon
               name="format-list-bulleted"
               size={24}
-              color={Colors.black}
+              color={colors.textPrimary}
             />
           </TouchableOpacity>
         </View>
@@ -464,7 +468,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   style={styles.goOfflineButton}
                   onPress={handleGoOffline}
                   activeOpacity={0.85}>
-                  <Icon name="hand-back-left" size={32} color={Colors.white} />
+                  <Icon name="hand-back-left" size={32} color={colors.white} />
                 </TouchableOpacity>
                 <Text style={styles.goOfflineLabel}>GO OFFLINE</Text>
               </View>
@@ -479,7 +483,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
                 <TouchableOpacity style={styles.recommendRow} activeOpacity={0.7}>
                   <View style={styles.recommendIcon}>
-                    <Icon name="star" size={24} color={Colors.textSecondary} />
+                    <Icon name="star" size={24} color={colors.textSecondary} />
                   </View>
                   <Text style={styles.recommendText}>
                     See upcoming promotions
@@ -491,7 +495,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                     <Icon
                       name="steering"
                       size={24}
-                      color={Colors.textSecondary}
+                      color={colors.textSecondary}
                     />
                   </View>
                   <Text style={styles.recommendText}>See driving time</Text>
@@ -520,13 +524,13 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (colors: any, theme: string) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: colors.background,
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     width: '100%',
     height: '100%',
   },
@@ -545,28 +549,28 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.white,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: Colors.shadowColor,
+    shadowColor: colors.shadowColor,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
   },
   earningsPill: {
-    backgroundColor: Colors.earningsPillBg,
+    backgroundColor: colors.earningsPillBg,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 24,
     elevation: 4,
-    shadowColor: Colors.shadowColor,
+    shadowColor: colors.shadowColor,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
   },
   earningsText: {
-    color: Colors.earningsPillText,
+    color: colors.earningsPillText,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -577,10 +581,10 @@ const styles = StyleSheet.create({
   },
   todayText: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontWeight: '600',
     letterSpacing: 0.5,
-    backgroundColor: Colors.white,
+    backgroundColor: colors.background,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
@@ -594,11 +598,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.white,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: Colors.shadowColor,
+    shadowColor: colors.shadowColor,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
@@ -617,23 +621,23 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: Colors.goBlue,
+    backgroundColor: colors.goBlue,
   },
   goButton: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: Colors.goBlue,
+    backgroundColor: colors.goBlue,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 8,
-    shadowColor: Colors.goBlue,
+    shadowColor: colors.goBlue,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
   },
   goButtonText: {
-    color: Colors.white,
+    color: colors.white,
     fontSize: 20,
     fontWeight: '800',
   },
@@ -643,7 +647,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(39,110,241,0.15)',
+    backgroundColor: theme === 'dark' ? 'rgba(75,139,255,0.15)' : 'rgba(39,110,241,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -651,11 +655,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.riderPin,
+    backgroundColor: colors.riderPin,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: Colors.white,
+    borderColor: colors.white,
   },
 
   // Bottom Panel
@@ -664,12 +668,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: Colors.white,
+    backgroundColor: colors.background,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingHorizontal: Spacing.xl,
     elevation: 10,
-    shadowColor: Colors.shadowColor,
+    shadowColor: colors.shadowColor,
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
@@ -678,7 +682,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.offlineGray,
+    backgroundColor: colors.offlineGray,
     alignSelf: 'center',
     marginTop: Spacing.sm,
     marginBottom: Spacing.md,
@@ -692,10 +696,10 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 16,
     fontWeight: '700',
-    color: Colors.black,
+    color: colors.textPrimary,
   },
   statusTextOnline: {
-    color: Colors.onlineGreen,
+    color: colors.onlineGreen,
   },
 
   // Expanded Content
@@ -707,18 +711,18 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: Colors.divider,
+    backgroundColor: colors.divider,
     marginVertical: Spacing.md,
   },
   recommendedTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.black,
+    color: colors.textPrimary,
     marginBottom: Spacing.xs,
   },
   laterTodayText: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: Spacing.lg,
     textAlign: 'center',
   },
@@ -732,20 +736,20 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
   recommendText: {
     fontSize: 15,
     fontWeight: '500',
-    color: Colors.black,
+    color: colors.textPrimary,
   },
   waybillLink: {
     textAlign: 'center',
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.goBlue,
+    color: colors.goBlue,
     paddingVertical: Spacing.md,
   },
 
@@ -760,11 +764,11 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: Colors.errorRed,
+    backgroundColor: colors.errorRed,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 6,
-    shadowColor: Colors.errorRed,
+    shadowColor: colors.errorRed,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -773,7 +777,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     fontSize: 14,
     fontWeight: '700',
-    color: Colors.errorRed,
+    color: colors.errorRed,
     letterSpacing: 0.5,
   },
 });
