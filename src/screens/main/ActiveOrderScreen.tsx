@@ -163,6 +163,15 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   const lastRouteStartRef = useRef({ lat: 0, lng: 0 });
   const order = activeOrder;
 
+  // ── Handle openReportIssue param from OrderDetailsScreen ────────────────
+  useEffect(() => {
+    if (route.params?.openReportIssue) {
+      setShowCancel(true);
+      // Clear param to avoid re-triggering
+      navigation.setParams({ openReportIssue: undefined });
+    }
+  }, [route.params?.openReportIssue]);
+
   // ── Order snapshot listener ──────────────────────────────────────────────
   useEffect(() => {
     if (!order) return;
