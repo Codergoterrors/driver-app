@@ -8,11 +8,13 @@ import {
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
+import Geolocation from '@react-native-community/geolocation';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Spacing, darkMapStyle } from '../../constants';
 import { useTheme } from '../../theme/ThemeContext';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { setActiveOrder, clearOrder, addEarnings } from '../../store/slices/orderSlice';
+import { updateLocation } from '../../store/slices/locationSlice';
 import { formatCurrency, formatDistance, formatDuration, haversineKm, estimatedMinutes, formatCustomerName, shortOrderId } from '../../utils';
 import type { Order } from '../../types';
 
@@ -267,6 +269,35 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       updatedAt: Date.now(), isOnline: true, activeOrderId: order.orderId,
     });
   }, [location.latitude, location.longitude, rider, order]);
+
+  // ── GPS tracking during active order ──────────────────────────────────────
+  useEffect(() => {
+    const watchId = Geolocation.watchPosition(
+      position => {
+        const { latitude, longitude, heading, speed } = position.coords;
+        dispatch(
+          updateLocation({
+            latitude,
+            longitude,
+            heading: heading ?? 0,
+            speed: speed ?? 0,
+          }),
+        );
+      },
+      error => console.log('ActiveOrder watch error:', error),
+      {
+        enableHighAccuracy: true,
+        distanceFilter: 0,
+        interval: 3000,
+        fastestInterval: 1000,
+      },
+    );
+    return () => {
+      if (watchId !== null) {
+        Geolocation.clearWatch(watchId);
+      }
+    };
+  }, [dispatch]);
 
   const toggleSheet = () => {
     const target = sheetExpanded ? 160 : 520;
