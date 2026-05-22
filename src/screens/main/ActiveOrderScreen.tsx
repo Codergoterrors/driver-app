@@ -183,8 +183,10 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
           dispatch(setActiveOrder(data));
           if (data.status === 'PICKED_UP' || data.status === 'ON_THE_WAY') setPhase('delivery');
           if (data.status === 'DELIVERED' || data.status === 'CANCELLED') {
-            dispatch(clearOrder());
+            // Navigate FIRST (before clearOrder unmounts the component)
             navigation.replace('Home');
+            setTimeout(() => dispatch(clearOrder()), 300);
+            return;
           }
           // Sync notReadyPressed with Firestore
           if (data.orderNotReady) setNotReadyPressed(true);
@@ -481,24 +483,16 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
                   </TouchableOpacity>
                 </View>
 
-                {/* "How was your pick-up?" */}
+                {/* "How was your pick-up?" with thumbs up/down */}
                 <Text style={styles.howWasPickup}>How was your pick-up?</Text>
-
-                {/* Order Not Ready / Order Ready buttons */}
-                <TouchableOpacity
-                  style={styles.notReadyBtn}
-                  onPress={notReadyPressed ? handleOrderReady : handleOrderNotReady}
-                  activeOpacity={0.7}
-                >
-                  <Icon
-                    name={notReadyPressed ? 'check-circle-outline' : 'clock-alert-outline'}
-                    size={18}
-                    color={notReadyPressed ? colors.onlineGreen : colors.warningOrange}
-                  />
-                  <Text style={[styles.notReadyText, { color: notReadyPressed ? colors.onlineGreen : colors.warningOrange }]}>
-                    {notReadyPressed ? 'Order Ready' : 'Order not ready'}
-                  </Text>
-                </TouchableOpacity>
+                <View style={styles.thumbsRow}>
+                  <TouchableOpacity style={styles.thumbBtn} activeOpacity={0.7}>
+                    <Icon name="thumb-up-outline" size={24} color={colors.onlineGreen} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.thumbBtn} activeOpacity={0.7}>
+                    <Icon name="thumb-down-outline" size={24} color={colors.errorRed} />
+                  </TouchableOpacity>
+                </View>
 
                 <View style={styles.divider} />
 
@@ -667,12 +661,8 @@ const getStyles = (colors: any, theme: string) => StyleSheet.create({
   },
   detailsBtnText: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
   howWasPickup: { fontSize: 14, color: colors.textSecondary, marginTop: 12, marginBottom: 8 },
-  notReadyBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: theme === 'dark' ? '#2A2100' : '#FFF8E1',
-    borderRadius: 8, padding: 12, marginBottom: Spacing.sm,
-  },
-  notReadyText: { fontSize: 14, fontWeight: '600' },
+  thumbsRow: { flexDirection: 'row', gap: 12, marginBottom: Spacing.md },
+  thumbBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: 20 },
   warningBtn: {
     width: 52, height: 56, borderRadius: 8,
