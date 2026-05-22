@@ -84,13 +84,21 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     try {
       console.log('[ACCEPT] Accepting order...', order.orderId);
       
-      const currentOrder = await firestore().collection('orders').doc(order.orderId).get();
-      const currentTimeline = currentOrder.data()?.statusTimeline || [];
+      // Verify the order is still available (not already accepted by someone else)
+      const currentOrderSnap = await firestore().collection('orders').doc(order.orderId).get();
+      const currentStatus = currentOrderSnap.data()?.status;
+      if (currentStatus !== 'RIDER_ASSIGNED') {
+        console.warn('[ACCEPT] Order status changed, cannot accept:', currentStatus);
+        dispatch(setIncomingOrder(null));
+        navigation.goBack();
+        return;
+      }
+
+      const currentTimeline = currentOrderSnap.data()?.statusTimeline || [];
       const newTimeline = [...currentTimeline, {
         status: 'PREPARING', timestamp: Date.now(), note: 'Rider accepted delivery',
       }];
 
-      // Actually assign the rider here
       await firestore().collection('orders').doc(order.orderId).update({
         riderId: rider?.uid || null,
         riderName: rider?.name || null,
@@ -113,9 +121,20 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     cancelSoundTimer();
     if (timerRef.current) clearInterval(timerRef.current);
     
-    // Clear rider's active order ID so they can receive new orders
-    if (rider?.uid) {
-      try {
+    if (!order) { navigation.goBack(); return; }
+
+    try {
+      // Unassign rider from order so it can be re-dispatched
+      await firestore().collection('orders').doc(order.orderId).update({
+        riderId: null,
+        riderName: null,
+        riderPhone: null,
+        status: 'PENDING',
+        declinedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      // Clear rider's active order ID
+      if (rider?.uid) {
         await firestore().collection('riders').doc(rider.uid).update({
           activeOrderId: null,
           updatedAt: Date.now(),
@@ -123,12 +142,10 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
         await database().ref(`liveLocations/${rider.uid}`).update({
           activeOrderId: null,
         });
-      } catch (e) {
-        console.error('Error clearing activeOrderId:', e);
       }
+    } catch (e) {
+      console.error('Error declining order:', e);
     }
-
-    if (!order) { navigation.goBack(); return; }
 
     dispatch(setIncomingOrder(null));
     navigation.goBack();
