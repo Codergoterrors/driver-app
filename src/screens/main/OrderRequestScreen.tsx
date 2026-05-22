@@ -84,10 +84,11 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     try {
       console.log('[ACCEPT] Accepting order...', order.orderId);
       
-      // Verify the order is still available (not already accepted by someone else)
+      // Verify the order is still available (not already accepted by someone else or cancelled)
       const currentOrderSnap = await firestore().collection('orders').doc(order.orderId).get();
       const currentStatus = currentOrderSnap.data()?.status;
-      if (currentStatus !== 'RIDER_ASSIGNED') {
+      // Order should be PLACED (new proposal flow) or RIDER_ASSIGNED (backward compat)
+      if (currentStatus !== 'PLACED' && currentStatus !== 'RIDER_ASSIGNED') {
         console.warn('[ACCEPT] Order status changed, cannot accept:', currentStatus);
         dispatch(setIncomingOrder(null));
         navigation.goBack();
