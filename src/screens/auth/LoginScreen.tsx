@@ -43,7 +43,7 @@ const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         .collection('riders')
         .doc(userCred.user.uid)
         .get();
-      if (doc.exists) {
+      if (doc.exists()) {
         dispatch(setRider(doc.data() as Rider));
       } else {
         setErrorMsg('No rider account found. Please sign up first.');
