@@ -8,7 +8,8 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { Colors, Spacing } from '../../constants';
+import { Spacing, darkMapStyle } from '../../constants';
+import { useTheme } from '../../theme/ThemeContext';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { setActiveOrder, clearOrder, addEarnings } from '../../store/slices/orderSlice';
 import { formatCurrency, formatDistance, formatDuration, haversineKm, estimatedMinutes, formatCustomerName, shortOrderId } from '../../utils';
@@ -19,6 +20,7 @@ const SLIDE_THRESHOLD = SCREEN_WIDTH * 0.6;
 
 // Slide-to-confirm button component
 const SlideButton: React.FC<{ label: string; color: string; onSlideComplete: () => void }> = ({ label, color, onSlideComplete }) => {
+  const { colors } = useTheme();
   const slideX = useRef(new Animated.Value(0)).current;
   const maxSlide = SCREEN_WIDTH - 120;
 
@@ -41,7 +43,7 @@ const SlideButton: React.FC<{ label: string; color: string; onSlideComplete: () 
     <View style={[slideStyles.track, { backgroundColor: color + '20' }]}>
       <Text style={[slideStyles.label, { color }]}>{label}</Text>
       <Animated.View style={[slideStyles.thumb, { backgroundColor: color, transform: [{ translateX: slideX }] }]} {...panResponder.panHandlers}>
-        <Icon name="chevron-right" size={28} color="#FFF" />
+        <Icon name="chevron-right" size={28} color={color === colors.white || color === '#FFFFFF' ? colors.black : colors.white} />
       </Animated.View>
     </View>
   );
@@ -54,6 +56,8 @@ const slideStyles = StyleSheet.create({
 });
 
 const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
+  const { colors, theme } = useTheme();
+  const styles = React.useMemo(() => getStyles(colors, theme), [colors, theme]);
   const dispatch = useAppDispatch();
   const activeOrder = useAppSelector(s => s.order.activeOrder);
   const location = useAppSelector(s => s.location);
@@ -73,7 +77,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
     if (!order) return;
     const unsub = firestore().collection('orders').doc(order.orderId)
       .onSnapshot(doc => {
-        if (doc.exists) {
+        if (doc.exists()) {
           const data = { orderId: doc.id, ...doc.data() } as Order;
           dispatch(setActiveOrder(data));
           if (data.status === 'PICKED_UP' || data.status === 'ON_THE_WAY') setPhase('delivery');
@@ -196,36 +200,37 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
       <View style={styles.addressBar}>
-        <Icon name="map-marker" size={20} color={Colors.white} />
+        <Icon name="map-marker" size={20} color={colors.background} />
         <Text style={styles.addressText} numberOfLines={2}>
           {phase === 'pickup' ? (order.restaurantAddress || order.restaurantName) : order.deliveryAddress.fullAddress}
         </Text>
       </View>
 
       <MapView ref={mapRef} style={styles.map} provider={PROVIDER_GOOGLE}
+        customMapStyle={theme === 'dark' ? darkMapStyle : undefined}
         initialRegion={{ ...destCoord, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
         showsUserLocation={false} showsMyLocationButton={false}>
         {order.routeCoordinates && order.routeCoordinates.length > 0 ? (
-          <Polyline coordinates={order.routeCoordinates} strokeColor="#000000" strokeWidth={4} />
+          <Polyline coordinates={order.routeCoordinates} strokeColor={colors.routeColor || '#000000'} strokeWidth={4} />
         ) : (
-          <Polyline coordinates={[{ latitude: location.latitude, longitude: location.longitude }, destCoord]} strokeColor="#000000" strokeWidth={4} />
+          <Polyline coordinates={[{ latitude: location.latitude, longitude: location.longitude }, destCoord]} strokeColor={colors.routeColor || '#000000'} strokeWidth={4} />
         )}
         <Marker coordinate={destCoord} anchor={{ x: 0.5, y: 0.5 }}>
-          <View style={[styles.destMarker, { backgroundColor: phase === 'pickup' ? Colors.onlineGreen : Colors.black }]}>
-            <Icon name={phase === 'pickup' ? 'silverware-fork-knife' : 'map-marker'} size={16} color={Colors.white} />
+          <View style={[styles.destMarker, { backgroundColor: phase === 'pickup' ? colors.onlineGreen : colors.textPrimary }]}>
+            <Icon name={phase === 'pickup' ? 'silverware-fork-knife' : 'map-marker'} size={16} color={phase === 'pickup' ? colors.white : colors.background} />
           </View>
         </Marker>
         {location.latitude !== 0 && (
           <Marker coordinate={{ latitude: location.latitude, longitude: location.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={styles.riderMarker}><Icon name="navigation" size={18} color={Colors.white} /></View>
+            <View style={styles.riderMarker}><Icon name="navigation" size={18} color={colors.white} /></View>
           </Marker>
         )}
       </MapView>
 
       <TouchableOpacity style={styles.navigateBtn} onPress={openNavigation} activeOpacity={0.85}>
-        <Icon name="navigation-variant" size={18} color={Colors.white} />
+        <Icon name="navigation-variant" size={18} color={colors.background} />
         <Text style={styles.navigateBtnText}>Navigate</Text>
       </TouchableOpacity>
 
@@ -234,9 +239,9 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         <TouchableOpacity onPress={toggleSheet} activeOpacity={0.9}>
           <View style={styles.dragHandle} />
           <View style={styles.statusRow}>
-            <Icon name="tune-variant" size={22} color={Colors.black} />
-            <Text style={styles.statusLabel}>{statusLabel}</Text>
-            <Icon name="format-list-bulleted" size={22} color={Colors.black} />
+            <Icon name="tune-variant" size={22} color={colors.textPrimary} />
+            <Text style={styles.statusLabelText}>{statusLabel}</Text>
+            <Icon name="format-list-bulleted" size={22} color={colors.textPrimary} />
           </View>
         </TouchableOpacity>
 
@@ -246,7 +251,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
               <View>
                 <Text style={styles.restaurantName}>{order.restaurantName}</Text>
                 <View style={styles.addressRow}>
-                  <Icon name="map-marker" size={18} color={Colors.textSecondary} />
+                  <Icon name="map-marker" size={18} color={colors.textSecondary} />
                   <Text style={styles.addressDetail}>{order.restaurantAddress || order.restaurantName}</Text>
                 </View>
                 <View style={styles.divider} />
@@ -262,16 +267,16 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
                 </View>
                 {/* Order not ready button */}
                 <TouchableOpacity style={styles.notReadyBtn} onPress={handleOrderNotReady} activeOpacity={0.7}>
-                  <Icon name="clock-alert-outline" size={18} color={Colors.warningOrange} />
+                  <Icon name="clock-alert-outline" size={18} color={colors.warningOrange} />
                   <Text style={styles.notReadyText}>Order not ready</Text>
                 </TouchableOpacity>
                 <View style={styles.divider} />
                 <View style={styles.actionRow}>
                   <TouchableOpacity style={styles.warningBtn} onPress={() => setShowCancel(true)}>
-                    <Icon name="alert" size={24} color={Colors.warningOrange} />
+                    <Icon name="alert" size={24} color={colors.warningOrange} />
                   </TouchableOpacity>
                   <View style={{ flex: 1 }}>
-                    <SlideButton label="Slide to start delivery" color={Colors.onlineGreen} onSlideComplete={handleStartDelivery} />
+                    <SlideButton label="Slide to start delivery" color={colors.onlineGreen} onSlideComplete={handleStartDelivery} />
                   </View>
                 </View>
               </View>
@@ -279,28 +284,28 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
               <View>
                 <View style={styles.etaRow}>
                   <Text style={styles.etaText}>{formatDuration(estMin)}</Text>
-                  <Icon name="map-marker" size={16} color={Colors.black} />
+                  <Icon name="map-marker" size={16} color={colors.textPrimary} />
                   <Text style={styles.etaText}>{formatDistance(distKm)}</Text>
                 </View>
                 <Text style={styles.customerNameLg}>{order.customerName || 'Customer'}</Text>
                 <View style={styles.contactRow}>
-                  <TouchableOpacity style={styles.contactBtn}><Icon name="message-text" size={20} color={Colors.black} /></TouchableOpacity>
-                  <TouchableOpacity style={styles.contactBtn}><Icon name="phone" size={20} color={Colors.black} /></TouchableOpacity>
+                  <TouchableOpacity style={styles.contactBtn}><Icon name="message-text" size={20} color={colors.textPrimary} /></TouchableOpacity>
+                  <TouchableOpacity style={styles.contactBtn}><Icon name="phone" size={20} color={colors.textPrimary} /></TouchableOpacity>
                 </View>
                 <View style={styles.divider} />
                 <View style={styles.pinCard}>
                   <Text style={styles.pinOrderCode}>{shortOrderId(order.orderId)}</Text>
                   <Text style={styles.pinRestaurant}>{order.restaurantName} · {order.items.length} items</Text>
-                  <TextInput style={styles.pinInput} placeholder="Enter delivery PIN" placeholderTextColor={Colors.textDisabled}
+                  <TextInput style={styles.pinInput} placeholder="Enter delivery PIN" placeholderTextColor={colors.textDisabled}
                     value={pinInput} onChangeText={t => { setPinInput(t); setPinError(false); }} keyboardType="numeric" maxLength={4} />
                   {pinError && <Text style={styles.pinErrorText}>Incorrect PIN. Try again.</Text>}
                 </View>
                 <View style={styles.actionRow}>
                   <TouchableOpacity style={styles.warningBtn} onPress={() => setShowCancel(true)}>
-                    <Icon name="alert" size={24} color={Colors.warningOrange} />
+                    <Icon name="alert" size={24} color={colors.warningOrange} />
                   </TouchableOpacity>
                   <View style={{ flex: 1 }}>
-                    <SlideButton label="Slide to deliver" color={Colors.black}
+                    <SlideButton label="Slide to deliver" color={colors.textPrimary}
                       onSlideComplete={handleCompleteDelivery} />
                   </View>
                 </View>
@@ -316,7 +321,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
           <View style={styles.cancelSheet}>
             <View style={styles.cancelHeader}>
               <TouchableOpacity onPress={() => { setShowCancel(false); setCancelReason(''); }}>
-                <Icon name="close" size={24} color={Colors.black} />
+                <Icon name="close" size={24} color={colors.textPrimary} />
               </TouchableOpacity>
               <Text style={styles.cancelTitle}>Report issue</Text>
               <View style={{ width: 24 }} />
@@ -326,9 +331,9 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
               {cancelReasons.map(reason => (
                 <TouchableOpacity key={reason} style={[styles.cancelOption, cancelReason === reason && styles.cancelOptionSelected]}
                   onPress={() => { setCancelReason(reason); setShowConfirmCancel(true); }} activeOpacity={0.7}>
-                  <Icon name="alert-circle-outline" size={22} color={Colors.errorRed} />
+                  <Icon name="alert-circle-outline" size={22} color={colors.errorRed} />
                   <Text style={styles.cancelOptionText}>{reason}</Text>
-                  <Icon name="chevron-right" size={20} color={Colors.textSecondary} />
+                  <Icon name="chevron-right" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -342,7 +347,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowConfirmCancel(false)} />
           <View style={styles.confirmSheet}>
             <View style={styles.confirmHandle} />
-            <Icon name="alert-circle" size={48} color={Colors.errorRed} style={{ alignSelf: 'center', marginBottom: 12 }} />
+            <Icon name="alert-circle" size={48} color={colors.errorRed} style={{ alignSelf: 'center', marginBottom: 12 }} />
             <Text style={styles.confirmText}>Cancel this delivery?</Text>
             <Text style={styles.confirmSubtext}>Reason: {cancelReason}</Text>
             <TouchableOpacity style={styles.yesCancelBtn} onPress={handleCancelOrder}>
@@ -358,61 +363,61 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.white },
-  map: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
-  addressBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: Colors.black, flexDirection: 'row', alignItems: 'center', paddingTop: (StatusBar.currentHeight || 44) + 8, paddingBottom: 12, paddingHorizontal: Spacing.lg, gap: Spacing.sm, zIndex: 10 },
-  addressText: { flex: 1, color: Colors.white, fontSize: 16, fontWeight: '700' },
-  destMarker: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: Colors.white },
-  riderMarker: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.riderPin, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: Colors.white },
-  navigateBtn: { position: 'absolute', bottom: 175, right: Spacing.lg, flexDirection: 'row', backgroundColor: Colors.black, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, alignItems: 'center', gap: 6, elevation: 6 },
-  navigateBtnText: { color: Colors.white, fontSize: 14, fontWeight: '700' },
-  bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: Colors.white, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: Spacing.xl, elevation: 10 },
-  dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.offlineGray, alignSelf: 'center', marginTop: 8, marginBottom: 10 },
+const getStyles = (colors: any, theme: string) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  map: { ...StyleSheet.absoluteFill, width: '100%', height: '100%' },
+  addressBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', paddingTop: (StatusBar.currentHeight || 44) + 8, paddingBottom: 12, paddingHorizontal: Spacing.lg, gap: Spacing.sm, zIndex: 10 },
+  addressText: { flex: 1, color: colors.background, fontSize: 16, fontWeight: '700' },
+  destMarker: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: colors.background },
+  riderMarker: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.riderPin, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: colors.white },
+  navigateBtn: { position: 'absolute', bottom: 175, right: Spacing.lg, flexDirection: 'row', backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, alignItems: 'center', gap: 6, elevation: 6 },
+  navigateBtnText: { color: colors.background, fontSize: 14, fontWeight: '700' },
+  bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: Spacing.xl, elevation: 10 },
+  dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.offlineGray, alignSelf: 'center', marginTop: 8, marginBottom: 10 },
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10 },
-  statusLabel: { fontSize: 16, fontWeight: '700', color: Colors.black },
+  statusLabelText: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
   sheetContent: { flex: 1, paddingBottom: 40 },
-  restaurantName: { fontSize: 22, fontWeight: '800', color: Colors.black, marginBottom: 8 },
+  restaurantName: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, marginBottom: 8 },
   addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: Spacing.md },
-  addressDetail: { flex: 1, fontSize: 14, color: Colors.textSecondary },
-  divider: { height: 1, backgroundColor: Colors.divider, marginVertical: Spacing.md },
-  pickupCount: { fontSize: 14, color: Colors.textSecondary, marginBottom: Spacing.md },
+  addressDetail: { flex: 1, fontSize: 14, color: colors.textSecondary },
+  divider: { height: 1, backgroundColor: colors.divider, marginVertical: Spacing.md },
+  pickupCount: { fontSize: 14, color: colors.textSecondary, marginBottom: Spacing.md },
   customerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  customerName: { fontSize: 18, fontWeight: '700', color: Colors.black },
-  orderCode: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
-  detailsBtn: { borderWidth: 1, borderColor: Colors.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  detailsBtnText: { fontSize: 13, fontWeight: '600', color: Colors.black },
-  notReadyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF8E1', borderRadius: 8, padding: 12, marginVertical: Spacing.md },
-  notReadyText: { fontSize: 14, fontWeight: '600', color: Colors.warningOrange },
+  customerName: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  orderCode: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  detailsBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  detailsBtnText: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
+  notReadyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme === 'dark' ? '#2A2100' : '#FFF8E1', borderRadius: 8, padding: 12, marginVertical: Spacing.md },
+  notReadyText: { fontSize: 14, fontWeight: '600', color: colors.warningOrange },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: 20 },
-  warningBtn: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: Colors.border, justifyContent: 'center', alignItems: 'center' },
+  warningBtn: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: colors.border, justifyContent: 'center', alignItems: 'center' },
   etaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, justifyContent: 'center' },
-  etaText: { fontSize: 16, fontWeight: '700', color: Colors.black },
-  customerNameLg: { fontSize: 22, fontWeight: '800', color: Colors.black, marginVertical: 8 },
+  etaText: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
+  customerNameLg: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, marginVertical: 8 },
   contactRow: { flexDirection: 'row', gap: 12, marginBottom: Spacing.md },
-  contactBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' },
-  pinCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: Spacing.lg, marginBottom: Spacing.lg },
-  pinOrderCode: { fontSize: 20, fontWeight: '800', color: Colors.black },
-  pinRestaurant: { fontSize: 13, color: Colors.textSecondary, marginTop: 2, marginBottom: Spacing.md },
-  pinInput: { backgroundColor: Colors.white, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.black, textAlign: 'center', fontWeight: '700', letterSpacing: 4 },
-  pinErrorText: { color: Colors.errorRed, fontSize: 12, marginTop: 4, textAlign: 'center' },
+  contactBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
+  pinCard: { backgroundColor: colors.surface, borderRadius: 12, padding: Spacing.lg, marginBottom: Spacing.lg },
+  pinOrderCode: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
+  pinRestaurant: { fontSize: 13, color: colors.textSecondary, marginTop: 2, marginBottom: Spacing.md },
+  pinInput: { backgroundColor: colors.background, borderRadius: 8, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: colors.textPrimary, textAlign: 'center', fontWeight: '700', letterSpacing: 4 },
+  pinErrorText: { color: colors.errorRed, fontSize: 12, marginTop: 4, textAlign: 'center' },
   // Cancel overlay
-  cancelOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 100 },
-  cancelSheet: { backgroundColor: Colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.xl, maxHeight: '85%', flex: 1 },
+  cancelOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 100 },
+  cancelSheet: { backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.xl, maxHeight: '85%', flex: 1 },
   cancelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.lg },
-  cancelTitle: { fontSize: 18, fontWeight: '700', color: Colors.black },
-  cancelSubtitle: { fontSize: 14, color: Colors.textSecondary, marginBottom: Spacing.md },
-  cancelOption: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  cancelOptionSelected: { backgroundColor: Colors.surface },
-  cancelOptionText: { fontSize: 15, fontWeight: '500', color: Colors.black, flex: 1 },
-  confirmSheet: { backgroundColor: Colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.xl, paddingBottom: 40 },
-  confirmHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.offlineGray, alignSelf: 'center', marginBottom: 20 },
-  confirmText: { fontSize: 20, fontWeight: '700', color: Colors.black, textAlign: 'center', marginBottom: 8 },
-  confirmSubtext: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', marginBottom: 24 },
-  yesCancelBtn: { backgroundColor: Colors.errorRed, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginBottom: Spacing.md },
-  yesCancelText: { color: Colors.white, fontSize: 16, fontWeight: '700' },
-  noGoBackBtn: { borderWidth: 1, borderColor: Colors.border, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
-  noGoBackText: { color: Colors.black, fontSize: 16, fontWeight: '700' },
+  cancelTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  cancelSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: Spacing.md },
+  cancelOption: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
+  cancelOptionSelected: { backgroundColor: colors.surface },
+  cancelOptionText: { fontSize: 15, fontWeight: '500', color: colors.textPrimary, flex: 1 },
+  confirmSheet: { backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.xl, paddingBottom: 40 },
+  confirmHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.offlineGray, alignSelf: 'center', marginBottom: 20 },
+  confirmText: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, textAlign: 'center', marginBottom: 8 },
+  confirmSubtext: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: 24 },
+  yesCancelBtn: { backgroundColor: colors.errorRed, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginBottom: Spacing.md },
+  yesCancelText: { color: colors.white, fontSize: 16, fontWeight: '700' },
+  noGoBackBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
+  noGoBackText: { color: colors.textPrimary, fontSize: 16, fontWeight: '700' },
 });
 
 export default ActiveOrderScreen;
