@@ -127,6 +127,8 @@ export interface Order {
   deliveredAt?: number;
   createdAt: number;
   updatedAt: number;
+  driverPayout?: number;
+  routeCoordinates?: Array<{ latitude: number; longitude: number }>;
 }
 
 // ==================== CANCELLATION ====================
