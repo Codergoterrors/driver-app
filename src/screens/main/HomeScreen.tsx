@@ -225,8 +225,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     if (isOnline && rider) {
       orderListenerRef.current = firestore()
         .collection('orders')
-        .where('riderId', '==', rider.uid)
-        .where('status', '==', 'RIDER_ASSIGNED')
+        .where('proposedRiderId', '==', rider.uid)
         .onSnapshot(snapshot => {
           if (snapshot && !snapshot.empty) {
             const doc = snapshot.docs[0];
