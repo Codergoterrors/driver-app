@@ -247,8 +247,8 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
             dispatch(setIncomingOrder(orderData));
 
-            // Use replace so OrderRequestScreen is always fresh
-            navigation.replace('OrderRequest', { orderId });
+            // Navigate to OrderRequestScreen to show the incoming order
+            navigation.navigate('OrderRequest', { orderId });
 
             // Release navigation lock after a short delay
             setTimeout(() => {
