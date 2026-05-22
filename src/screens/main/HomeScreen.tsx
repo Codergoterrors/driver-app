@@ -12,6 +12,8 @@ import {
   PanResponder,
   Platform,
   PermissionsAndroid,
+  Alert,
+  Linking,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
@@ -37,6 +39,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const rider = useAppSelector(state => state.auth.rider);
   const isOnline = useAppSelector(state => state.order.isOnline);
+  const activeOrder = useAppSelector(state => state.order.activeOrder);
   const todayEarnings = useAppSelector(state => state.order.todayEarnings);
   const location = useAppSelector(state => state.location);
 
@@ -51,7 +54,58 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const watchId = useRef<number | null>(null);
   const orderListenerRef = useRef<(() => void) | null>(null);
 
-  // Request location permission on Android
+  // Guard: track which orderId we already navigated to — prevents double-navigation
+  const lastHandledOrderId = useRef<string | null>(null);
+  // Guard: are we currently navigating to OrderRequest?
+  const isNavigatingRef = useRef(false);
+
+  // ─── GPS: Get quick cached position first, then watch for accurate updates ───
+  const getInitialLocation = useCallback(() => {
+    // STEP 1: Get instant cached/low-accuracy position immediately so map shows GPS dot
+    Geolocation.getCurrentPosition(
+      position => {
+        const { latitude, longitude } = position.coords;
+        dispatch(updateLocation({ latitude, longitude }));
+        setLocationReady(true);
+        mapRef.current?.animateToRegion(
+          { latitude, longitude, latitudeDelta: 0.015, longitudeDelta: 0.015 },
+          800,
+        );
+      },
+      _error => {
+        // Low-accuracy failed, still mark as ready so app doesn't hang
+        setLocationReady(true);
+      },
+      {
+        enableHighAccuracy: false, // Use cell/wifi for instant result
+        timeout: 5000,
+        maximumAge: 60000, // Accept position up to 1 minute old
+      },
+    );
+
+    // STEP 2: Also request a high-accuracy fix — updates when available
+    Geolocation.getCurrentPosition(
+      position => {
+        const { latitude, longitude } = position.coords;
+        dispatch(updateLocation({ latitude, longitude }));
+        setLocationReady(true);
+        mapRef.current?.animateToRegion(
+          { latitude, longitude, latitudeDelta: 0.015, longitudeDelta: 0.015 },
+          500,
+        );
+      },
+      _error => {
+        // Fine to ignore — low-accuracy already handled above
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 10000,
+      },
+    );
+  }, [dispatch]);
+
+  // Request location permission on Android, then get location
   useEffect(() => {
     const requestPermission = async () => {
       if (Platform.OS === 'android') {
@@ -72,28 +126,6 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     };
     requestPermission();
   }, []);
-
-  // Get initial location and center map
-  const getInitialLocation = () => {
-    Geolocation.getCurrentPosition(
-      position => {
-        const { latitude, longitude } = position.coords;
-        dispatch(updateLocation({ latitude, longitude }));
-        setLocationReady(true);
-        mapRef.current?.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.015,
-          longitudeDelta: 0.015,
-        }, 1000);
-      },
-      error => {
-        console.log('Location error:', error);
-        setLocationReady(true);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
-    );
-  };
 
   // Pulsing ring animation for GO button
   useEffect(() => {
@@ -120,7 +152,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   // Throttle ref to avoid updating Firestore too often
   const lastFirestoreUpdate = useRef<number>(0);
 
-  // GPS tracking — always on for showing driver position
+  // ─── GPS tracking — watch position with NO distanceFilter so first fix fires instantly ───
   useEffect(() => {
     watchId.current = Geolocation.watchPosition(
       position => {
@@ -133,6 +165,14 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             speed: speed ?? 0,
           }),
         );
+        // Centre map if we don't have a location yet
+        if (!locationReady) {
+          setLocationReady(true);
+          mapRef.current?.animateToRegion(
+            { latitude, longitude, latitudeDelta: 0.015, longitudeDelta: 0.015 },
+            800,
+          );
+        }
 
         if (isOnline && rider) {
           // 1. Always update RTDB for real-time map tracking
@@ -149,8 +189,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             })
             .catch(err => console.log('RTDB write error:', err));
 
-          // 2. Also update Firestore riders doc every 15s so Customer App
-          //    can find this driver even if RTDB rules are restrictive
+          // 2. Also update Firestore riders doc every 15s
           const now = Date.now();
           if (now - lastFirestoreUpdate.current > 15000) {
             lastFirestoreUpdate.current = now;
@@ -169,9 +208,9 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       error => console.log('Watch error:', error),
       {
         enableHighAccuracy: true,
-        distanceFilter: 10,
+        distanceFilter: 0,   // Fire immediately on first fix — no distance gate
         interval: 3000,
-        fastestInterval: 2000,
+        fastestInterval: 1000,
       },
     );
     return () => {
@@ -181,7 +220,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     };
   }, [isOnline, rider]);
 
-  // Listen for incoming orders when online
+  // ─── Listen for incoming orders when online ───
   useEffect(() => {
     if (isOnline && rider) {
       orderListenerRef.current = firestore()
@@ -191,9 +230,30 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         .onSnapshot(snapshot => {
           if (snapshot && !snapshot.empty) {
             const doc = snapshot.docs[0];
-            const orderData = { orderId: doc.id, ...doc.data() } as Order;
+            const orderId = doc.id;
+
+            // Guard 1: don't navigate if we already handled this specific order
+            if (orderId === lastHandledOrderId.current) return;
+
+            // Guard 2: don't navigate if driver already has an active order
+            if (activeOrder !== null) return;
+
+            // Guard 3: don't navigate if we're already navigating
+            if (isNavigatingRef.current) return;
+
+            const orderData = { orderId, ...doc.data() } as Order;
+            lastHandledOrderId.current = orderId;
+            isNavigatingRef.current = true;
+
             dispatch(setIncomingOrder(orderData));
-            navigation.navigate('OrderRequest', { orderId: doc.id });
+
+            // Use replace so OrderRequestScreen is always fresh
+            navigation.replace('OrderRequest', { orderId });
+
+            // Release navigation lock after a short delay
+            setTimeout(() => {
+              isNavigatingRef.current = false;
+            }, 2000);
           }
         });
 
@@ -203,7 +263,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         }
       };
     }
-  }, [isOnline, rider]);
+  }, [isOnline, rider, activeOrder]);
 
   // Relocate / re-center map on driver's location
   const handleRelocate = useCallback(() => {
@@ -217,11 +277,51 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     } else {
       getInitialLocation();
     }
-  }, [location]);
+  }, [location, getInitialLocation]);
 
+  // ─── Go Online: Check GPS is enabled before allowing ───
   const handleGoOnline = useCallback(async () => {
     if (!rider) return;
-    // Animate GO button out
+
+    // Check GPS is available by attempting a position fix
+    const checkGPS = () =>
+      new Promise<boolean>(resolve => {
+        Geolocation.getCurrentPosition(
+          () => resolve(true),
+          error => {
+            // Error code 2 = position unavailable (GPS off)
+            // Error code 3 = timeout (GPS on but no signal yet — allow)
+            if (error.code === 2) {
+              resolve(false);
+            } else {
+              resolve(true);
+            }
+          },
+          { enableHighAccuracy: false, timeout: 3000, maximumAge: 30000 },
+        );
+      });
+
+    const gpsAvailable = await checkGPS();
+
+    if (!gpsAvailable) {
+      Alert.alert(
+        'GPS Required',
+        'Please enable GPS/Location Services to go online. Customers need your real-time location to track orders.',
+        [
+          {
+            text: 'Open Settings',
+            onPress: () => Linking.openSettings(),
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ],
+      );
+      return;
+    }
+
+    // GPS is available — proceed to go online
     Animated.parallel([
       Animated.timing(goButtonScale, {
         toValue: 0,
@@ -236,12 +336,15 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     ]).start();
 
     dispatch(setOnline(true));
-    // Update Firestore
     await firestore().collection('riders').doc(rider.uid).update({
       isOnline: true,
       updatedAt: Date.now(),
     });
     dispatch(updateRider({ isOnline: true }));
+
+    // Reset the order ID guard when going online fresh
+    lastHandledOrderId.current = null;
+    isNavigatingRef.current = false;
   }, [rider]);
 
   const handleGoOffline = useCallback(async () => {
@@ -275,6 +378,10 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       isOnline: false,
     });
     dispatch(updateRider({ isOnline: false }));
+
+    // Reset order guards
+    lastHandledOrderId.current = null;
+    isNavigatingRef.current = false;
 
     // Collapse panel
     togglePanel(false);
