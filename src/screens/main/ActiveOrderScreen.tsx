@@ -71,6 +71,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   const [cancelReason, setCancelReason] = useState('');
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const sheetHeight = useRef(new Animated.Value(160)).current;
+  const isCancellingRef = useRef(false);
   const order = activeOrder;
 
   useEffect(() => {
@@ -79,6 +80,8 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       .onSnapshot(doc => {
         if (doc.exists()) {
           const data = { orderId: doc.id, ...doc.data() } as Order;
+          // Don't override Redux state if we're in the middle of cancelling
+          if (isCancellingRef.current) return;
           dispatch(setActiveOrder(data));
           if (data.status === 'PICKED_UP' || data.status === 'ON_THE_WAY') setPhase('delivery');
           if (data.status === 'DELIVERED' || data.status === 'CANCELLED') {
@@ -171,16 +174,26 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
 
   const handleCancelOrder = useCallback(async () => {
     if (!order || !cancelReason) return;
-    await firestore().collection('orders').doc(order.orderId).update({
-      riderId: null, riderName: null, riderPhone: null, status: 'CONFIRMED', updatedAt: Date.now(),
-      cancelReason, cancelledBy: 'rider',
-    });
-    if (rider) {
-      await firestore().collection('riders').doc(rider.uid).update({ activeOrderId: null, updatedAt: Date.now() });
-      await database().ref(`liveLocations/${rider.uid}`).update({ activeOrderId: null });
+    // Set guard to prevent listener from overriding state during cancel
+    isCancellingRef.current = true;
+    try {
+      await firestore().collection('orders').doc(order.orderId).update({
+        riderId: null, riderName: null, riderPhone: null, status: 'CANCELLED', updatedAt: Date.now(),
+        cancelReason, cancelledBy: 'rider',
+        statusTimeline: firestore.FieldValue.arrayUnion({ status: 'CANCELLED', timestamp: Date.now(), note: `Cancelled by rider: ${cancelReason}` }),
+      });
+      if (rider) {
+        await firestore().collection('riders').doc(rider.uid).update({ activeOrderId: null, updatedAt: Date.now() });
+        await database().ref(`liveLocations/${rider.uid}`).update({ activeOrderId: null });
+      }
+      dispatch(clearOrder());
+      setShowConfirmCancel(false);
+      setShowCancel(false);
+      navigation.replace('Home');
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      isCancellingRef.current = false;
     }
-    dispatch(clearOrder());
-    navigation.replace('Home');
   }, [order, cancelReason, rider]);
 
   if (!order) return null;
