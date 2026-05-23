@@ -52,7 +52,35 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           .doc(currentUser.uid)
           .get();
         if (doc.exists()) {
-          dispatch(setRider(doc.data() as Rider));
+          const riderData = doc.data() as Rider;
+          dispatch(setRider(riderData));
+
+          // Fix #6: Restore active order state — if the rider had an active order
+          // when the app was closed, navigate directly back to it.
+          if (riderData.activeOrderId) {
+            try {
+              const orderDoc = await firestore()
+                .collection('orders')
+                .doc(riderData.activeOrderId)
+                .get();
+              if (orderDoc.exists()) {
+                const orderData = orderDoc.data();
+                const activeStatuses = ['PLACED', 'CONFIRMED', 'PREPARING', 'RIDER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'];
+                if (orderData && activeStatuses.includes(orderData.status)) {
+                  const phase = (orderData.status === 'PICKED_UP' || orderData.status === 'ON_THE_WAY')
+                    ? 'delivery' : 'pickup';
+                  // Import setActiveOrder and navigate to ActiveOrder
+                  const { setActiveOrder } = require('../../store/slices/orderSlice');
+                  dispatch(setActiveOrder({ orderId: orderDoc.id, ...orderData }));
+                  navigation.replace('ActiveOrder', { orderId: riderData.activeOrderId, phase });
+                  return;
+                }
+              }
+            } catch (orderErr) {
+              console.log('[SPLASH] Error fetching active order:', orderErr);
+            }
+          }
+          // No active order — go to Home normally (isOnline is restored via redux-persist)
         } else {
           dispatch(setLoading(false));
           navigation.replace('Login');
