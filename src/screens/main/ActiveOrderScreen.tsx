@@ -184,10 +184,30 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
           if (isCancellingRef.current) return;
           dispatch(setActiveOrder(data));
           if (data.status === 'PICKED_UP' || data.status === 'ON_THE_WAY') setPhase('delivery');
-          if (data.status === 'DELIVERED' || data.status === 'CANCELLED') {
-            // Navigate FIRST (before clearOrder unmounts the component)
-            navigation.replace('Home');
+          if (data.status === 'DELIVERED') {
+            // Fix #3: Use reset() to fully clear the navigation stack
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
             setTimeout(() => dispatch(clearOrder()), 300);
+            return;
+          }
+          if (data.status === 'CANCELLED') {
+            // Fix #5: Notify driver if customer cancelled; Fix #3: use reset()
+            if (data.cancelledBy === 'customer') {
+              const { Alert } = require('react-native');
+              Alert.alert(
+                'Order Cancelled',
+                'The customer cancelled the order.',
+                [{
+                  text: 'OK', onPress: () => {
+                    navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+                    setTimeout(() => dispatch(clearOrder()), 300);
+                  },
+                }],
+              );
+            } else {
+              navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+              setTimeout(() => dispatch(clearOrder()), 300);
+            }
             return;
           }
           // Sync notReadyPressed with Firestore
@@ -377,7 +397,8 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       }
       setShowConfirmCancel(false);
       setShowCancel(false);
-      navigation.replace('Home');
+      // Fix #3: Use reset() to fully clear navigation stack on manual cancel
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
       setTimeout(() => {
         dispatch(clearOrder());
         isCancellingRef.current = false;
