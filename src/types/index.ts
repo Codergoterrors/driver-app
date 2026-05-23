@@ -129,6 +129,9 @@ export interface Order {
   updatedAt: number;
   driverPayout?: number;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  orderNotReady?: boolean;
+  cancelledBy?: 'rider' | 'customer';
+  cancelReason?: string;
 }
 
 // ==================== CANCELLATION ====================
