@@ -164,6 +164,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   const lastRouteRefetchRef = useRef(0);
   const lastRouteStartRef = useRef({ lat: 0, lng: 0 });
   const order = activeOrder;
+  const lastFirestoreUpdate = useRef(0);
 
   // ── Handle openReportIssue param from OrderDetailsScreen ────────────────
   useEffect(() => {
@@ -185,13 +186,11 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
           dispatch(setActiveOrder(data));
           if (data.status === 'PICKED_UP' || data.status === 'ON_THE_WAY') setPhase('delivery');
           if (data.status === 'DELIVERED') {
-            // Fix #3: Use reset() to fully clear the navigation stack
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
             setTimeout(() => dispatch(clearOrder()), 300);
             return;
           }
           if (data.status === 'CANCELLED') {
-            // Fix #5: Notify driver if customer cancelled; Fix #3: use reset()
             if (data.cancelledBy === 'customer') {
               const { Alert } = require('react-native');
               Alert.alert(
@@ -210,7 +209,6 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
             }
             return;
           }
-          // Sync notReadyPressed with Firestore
           if (data.orderNotReady) setNotReadyPressed(true);
           if (!data.orderNotReady) setNotReadyPressed(false);
         }
@@ -229,7 +227,6 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       lastRouteStartRef.current = { lat: fromLat, lng: fromLng };
       lastRouteRefetchRef.current = Date.now();
     } else {
-      // Fallback to straight line
       setRouteCoords([
         { latitude: fromLat, longitude: fromLng },
         { latitude: toLat, longitude: toLng },
@@ -241,7 +238,6 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   useEffect(() => {
     if (!order || location.latitude === 0) return;
     fetchRoute(location.latitude, location.longitude);
-    // Fit map
     const dest = phase === 'pickup'
       ? { latitude: order.restaurantLat || 0, longitude: order.restaurantLng || 0 }
       : { latitude: order.deliveryAddress.lat, longitude: order.deliveryAddress.lng };
@@ -259,35 +255,47 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   // ── Location update: trim route + reroute if off-track ───────────────────
   useEffect(() => {
     if (!order || location.latitude === 0 || routeCoords.length === 0) return;
-
-    // 1. Trim already-passed waypoints
     const trimmed = trimPassedRoute(routeCoords, location.latitude, location.longitude);
     if (trimmed.length !== routeCoords.length) {
       setRouteCoords(trimmed);
     }
-
-    // 2. Check if driver deviated >60m from nearest route point
     const nearestDist = trimmed.length > 0
       ? haversineKm(location.latitude, location.longitude, trimmed[0].latitude, trimmed[0].longitude)
       : 999;
-
     const now = Date.now();
     const timeSinceLastFetch = now - lastRouteRefetchRef.current;
-
-    // Reroute if deviated more than 60m AND at least 20s have passed since last fetch
     if (nearestDist > 0.06 && timeSinceLastFetch > 20000) {
       fetchRoute(location.latitude, location.longitude);
     }
   }, [location.latitude, location.longitude]);
-
-  // ── Write live location to RTDB ──────────────────────────────────────────
   useEffect(() => {
     if (!rider || !order || location.latitude === 0) return;
+
+    // 1. Always update RTDB for real-time map tracking
     database().ref(`liveLocations/${rider.uid}`).update({
       lat: location.latitude, lng: location.longitude,
       heading: location.heading || 0, speed: location.speed || 0,
       updatedAt: Date.now(), isOnline: true, activeOrderId: order.orderId,
     });
+
+    // 2. Also update Firestore riders doc every 10s (Fallback for Customer App)
+    const now = Date.now();
+    if (now - lastFirestoreUpdate.current > 10000) {
+      lastFirestoreUpdate.current = now;
+      firestore()
+        .collection('riders')
+        .doc(rider.uid)
+        .update({
+          currentLat: location.latitude,
+          currentLng: location.longitude,
+          heading: location.heading || 0,
+          speed: location.speed || 0,
+          isOnline: true,
+          activeOrderId: order.orderId,
+          updatedAt: now,
+        })
+        .catch(err => console.log('Firestore active location update error:', err));
+    }
   }, [location.latitude, location.longitude, rider, order]);
 
   // ── GPS tracking during active order ──────────────────────────────────────
