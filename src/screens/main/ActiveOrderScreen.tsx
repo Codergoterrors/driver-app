@@ -271,35 +271,56 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   useEffect(() => {
     if (!rider || !order || location.latitude === 0) return;
 
-    // 1. Always update RTDB for real-time map tracking
+    // 1. Always update RTDB for real-time map tracking (~3s updates)
     database().ref(`liveLocations/${rider.uid}`).update({
       lat: location.latitude, lng: location.longitude,
       heading: location.heading || 0, speed: location.speed || 0,
       updatedAt: Date.now(), isOnline: true, activeOrderId: order.orderId,
-    });
+    }).catch(err => console.log('RTDB update error:', err));
 
-    // 2. Also update Firestore riders doc every 10s (Fallback for Customer App)
+    // 2. Throttled Firestore updates every 10s — dual purpose:
+    //    a) Update riders/{uid} for the Firestore polling fallback
+    //    b) Embed coords in the order doc so customer tracking works
+    //       even without Firebase rules deployed (customer reads own order)
     const now = Date.now();
     if (now - lastFirestoreUpdate.current > 10000) {
       lastFirestoreUpdate.current = now;
-      firestore()
-        .collection('riders')
-        .doc(rider.uid)
-        .update({
-          currentLat: location.latitude,
-          currentLng: location.longitude,
-          heading: location.heading || 0,
-          speed: location.speed || 0,
-          isOnline: true,
-          activeOrderId: order.orderId,
-          updatedAt: now,
-        })
-        .catch(err => console.log('Firestore active location update error:', err));
+
+      // Update riders doc (for Firestore polling fallback)
+      firestore().collection('riders').doc(rider.uid).update({
+        currentLat: location.latitude,
+        currentLng: location.longitude,
+        heading: location.heading || 0,
+        speed: location.speed || 0,
+        isOnline: true,
+        activeOrderId: order.orderId,
+        updatedAt: now,
+      }).catch(err => console.log('Firestore riders update error:', err));
+
+      // Embed rider coordinates INTO the order document
+      // Customer app reads this from its existing onOrderSnapshot listener—
+      // no extra Firestore rules needed since customer can read their own order.
+      firestore().collection('orders').doc(order.orderId).update({
+        riderCurrentLat: location.latitude,
+        riderCurrentLng: location.longitude,
+        riderHeading: location.heading || 0,
+      }).catch(err => console.log('Order location embed error:', err));
     }
   }, [location.latitude, location.longitude, rider, order]);
 
   // ── GPS tracking during active order ──────────────────────────────────────
+  // Get an IMMEDIATE position fix on mount so the map doesn't show the stale
+  // restaurant coordinates that HomeScreen's watchPosition left in Redux.
   useEffect(() => {
+    Geolocation.getCurrentPosition(
+      position => {
+        const { latitude, longitude, heading, speed } = position.coords;
+        dispatch(updateLocation({ latitude, longitude, heading: heading ?? 0, speed: speed ?? 0 }));
+      },
+      err => console.log('ActiveOrder getCurrentPosition error:', err),
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+
     const watchId = Geolocation.watchPosition(
       position => {
         const { latitude, longitude, heading, speed } = position.coords;
@@ -355,7 +376,11 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
 
   const handleCompleteDelivery = useCallback(async () => {
     if (!order) return;
-    if (order.deliveryPin && pinInput !== order.deliveryPin) {
+    // Normalize both sides to trimmed strings to handle Firestore type coercion
+    // (Firestore may return the PIN as a number even if stored as a string)
+    const storedPin = order.deliveryPin != null ? String(order.deliveryPin).trim() : null;
+    const enteredPin = pinInput.trim();
+    if (storedPin && enteredPin !== storedPin) {
       setPinError(true); return;
     }
     await firestore().collection('orders').doc(order.orderId).update({

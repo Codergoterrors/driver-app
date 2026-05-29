@@ -175,39 +175,44 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         }
 
         if (isOnline && rider) {
-          // 1. Always update RTDB for real-time map tracking
-          database()
-            .ref(`liveLocations/${rider.uid}`)
-            .set({
-              lat: latitude,
-              lng: longitude,
-              heading: heading ?? 0,
-              speed: speed ?? 0,
-              updatedAt: Date.now(),
-              isOnline: true,
-              activeOrderId: null,
-            })
-            .catch(err => console.log('RTDB write error:', err));
-
-          // 2. Also update Firestore riders doc every 15s
-          // Includes heading, isOnline, activeOrderId so customer app
-          // fallback polling can build a complete RiderLiveLocation object.
-          const now = Date.now();
-          if (now - lastFirestoreUpdate.current > 10000) {
-            lastFirestoreUpdate.current = now;
-            firestore()
-              .collection('riders')
-              .doc(rider.uid)
-              .update({
-                currentLat: latitude,
-                currentLng: longitude,
+          // Skip RTDB write when there's an active order — ActiveOrderScreen
+          // owns the liveLocations/{uid} node during delivery. Writing here
+          // would set activeOrderId: null and clobber the driver's position.
+          if (!activeOrder) {
+            // 1. Update RTDB for real-time tracking (idle / pre-accept state)
+            database()
+              .ref(`liveLocations/${rider.uid}`)
+              .set({
+                lat: latitude,
+                lng: longitude,
                 heading: heading ?? 0,
                 speed: speed ?? 0,
+                updatedAt: Date.now(),
                 isOnline: true,
-                activeOrderId: activeOrder?.orderId || null,
-                updatedAt: now,
+                activeOrderId: null,
               })
-              .catch(err => console.log('Firestore location update error:', err));
+              .catch(err => console.log('RTDB write error:', err));
+
+            // 2. Also update Firestore riders doc every 10s
+            // Includes heading, isOnline, activeOrderId so customer app
+            // fallback polling can build a complete RiderLiveLocation object.
+            const now = Date.now();
+            if (now - lastFirestoreUpdate.current > 10000) {
+              lastFirestoreUpdate.current = now;
+              firestore()
+                .collection('riders')
+                .doc(rider.uid)
+                .update({
+                  currentLat: latitude,
+                  currentLng: longitude,
+                  heading: heading ?? 0,
+                  speed: speed ?? 0,
+                  isOnline: true,
+                  activeOrderId: null,
+                  updatedAt: now,
+                })
+                .catch(err => console.log('Firestore location update error:', err));
+            }
           }
         }
       },
