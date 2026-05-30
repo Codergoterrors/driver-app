@@ -402,7 +402,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
     dispatch(addEarnings(order.driverPayout || order.pricing.deliveryFee));
     dispatch(clearOrder());
     navigation.replace('Home');
-  }, [order, pinInput, rider]);
+  };
 
   const handleOrderNotReady = useCallback(async () => {
     if (!order) return;
