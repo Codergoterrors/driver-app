@@ -19,4 +19,20 @@ buildscript {
     }
 }
 
+// Provide repositories for ALL subprojects (including react-native libraries).
+// org.asyncstorage.shared_storage:storage-android:1.0.0 is bundled as a local
+// Maven repo inside the async-storage npm package — we must include it here
+// so Gradle can resolve it during the build.
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        // storage-android:1.0.0 is bundled inside the async-storage npm package
+        maven {
+            url = uri("$rootDir/../node_modules/@react-native-async-storage/async-storage/android/local_repo")
+        }
+        maven { url "https://www.jitpack.io" }
+    }
+}
+
 apply plugin: "com.facebook.react.rootproject"
