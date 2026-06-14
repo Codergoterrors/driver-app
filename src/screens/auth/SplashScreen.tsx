@@ -12,6 +12,7 @@ import firestore from '@react-native-firebase/firestore';
 import { Colors } from '../../constants';
 import { useAppDispatch } from '../../store/hooks';
 import { setRider, setLoading } from '../../store/slices/authSlice';
+import { setActiveOrder, setOnline, clearOrder } from '../../store/slices/orderSlice';
 import type { Rider } from '../../types';
 
 const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
@@ -53,10 +54,16 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           .get();
         if (doc.exists()) {
           const riderData = doc.data() as Rider;
-          dispatch(setRider(riderData));
 
-          // Fix #6: Restore active order state — if the rider had an active order
-          // when the app was closed, navigate directly back to it.
+          // ─── Session Recovery ────────────────────────────────────────────────
+          // If the driver had an active order when the app was killed / restarted,
+          // we restore it into Redux BEFORE calling setRider. This means HomeScreen
+          // will already see the activeOrder and online=true on its very first mount
+          // and will redirect to ActiveOrderScreen automatically.
+          //
+          // IMPORTANT: Do NOT call navigation.replace('ActiveOrder') here.
+          // This screen lives in AuthStack; ActiveOrder is in MainStack (DrawerNavigator).
+          // Cross-stack navigation from Splash silently fails — HomeScreen handles it.
           if (riderData.activeOrderId) {
             try {
               const orderDoc = await firestore()
@@ -65,22 +72,32 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                 .get();
               if (orderDoc.exists()) {
                 const orderData = orderDoc.data();
-                const activeStatuses = ['PLACED', 'CONFIRMED', 'PREPARING', 'RIDER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'];
+                const activeStatuses = [
+                  'PLACED', 'CONFIRMED', 'PREPARING',
+                  'RIDER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY',
+                ];
                 if (orderData && activeStatuses.includes(orderData.status)) {
-                  const phase = (orderData.status === 'PICKED_UP' || orderData.status === 'ON_THE_WAY')
-                    ? 'delivery' : 'pickup';
-                  // Import setActiveOrder and navigate to ActiveOrder
-                  const { setActiveOrder } = require('../../store/slices/orderSlice');
-                  dispatch(setActiveOrder({ orderId: orderDoc.id, ...orderData }));
-                  navigation.replace('ActiveOrder', { orderId: riderData.activeOrderId, phase });
-                  return;
+                  // Active order still running — pre-load it so HomeScreen redirects
+                  dispatch(setActiveOrder({ orderId: orderDoc.id, ...orderData } as any));
+                  dispatch(setOnline(true));
+                } else {
+                  // Order was completed / cancelled while app was closed — wipe stale cache
+                  dispatch(clearOrder());
+                  dispatch(setOnline(false));
                 }
+              } else {
+                // Order document deleted — clear stale persisted state
+                dispatch(clearOrder());
               }
             } catch (orderErr) {
               console.log('[SPLASH] Error fetching active order:', orderErr);
             }
           }
-          // No active order — go to Home normally (isOnline is restored via redux-persist)
+          // Calling setRider sets isAuthenticated=true → AppNavigator swaps
+          // AuthNavigator for DrawerNavigator → HomeScreen mounts with full state.
+          dispatch(setRider(riderData));
+          // ── HomeScreen's session recovery effect takes it from here ──────────
+          return;
         } else {
           dispatch(setLoading(false));
           navigation.replace('Login');

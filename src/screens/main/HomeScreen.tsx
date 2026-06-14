@@ -58,6 +58,8 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const lastHandledOrderId = useRef<string | null>(null);
   // Guard: are we currently navigating to OrderRequest?
   const isNavigatingRef = useRef(false);
+  // Guard: session recovery runs only once per mount
+  const sessionRecoveredRef = useRef(false);
 
   // ─── GPS: Get quick cached position first, then watch for accurate updates ───
   const getInitialLocation = useCallback(() => {
@@ -126,6 +128,28 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     };
     requestPermission();
   }, []);
+
+  // ─── Session Recovery (runs once on mount) ──────────────────────────────────────
+  // If redux-persist (or the Splash screen's Firestore fetch) has already
+  // populated activeOrder in the store, redirect to ActiveOrderScreen immediately.
+  // This handles: (1) app kill during live delivery, (2) system-forced restart.
+  // The ref guard prevents this from firing again when the driver returns to Home
+  // after completing a delivery (at which point activeOrder is null anyway).
+  useEffect(() => {
+    if (sessionRecoveredRef.current) return;
+    if (activeOrder?.orderId) {
+      sessionRecoveredRef.current = true;
+      const phase =
+        activeOrder.status === 'PICKED_UP' || activeOrder.status === 'ON_THE_WAY'
+          ? 'delivery'
+          : 'pickup';
+      // Small delay: let the navigation stack fully mount before we push ActiveOrder
+      const t = setTimeout(() => {
+        navigation.replace('ActiveOrder', { orderId: activeOrder.orderId, phase });
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [activeOrder]);
 
   // Pulsing ring animation for GO button
   useEffect(() => {
