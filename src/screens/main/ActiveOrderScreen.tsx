@@ -374,7 +374,12 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
     setRouteCoords([]); // Will refetch from driver location for delivery leg
   }, [order]);
 
-  const handleCompleteDelivery = useCallback(async () => {
+  /**
+   * Handles the delivery completion process.
+   * Performs PIN verification (if required) and updates the order status 
+   * in Firestore while cleaning up location tracking listeners.
+   */
+  const handleCompleteDelivery = async () => {
     if (!order) return;
     // Normalize both sides to trimmed strings to handle Firestore type coercion
     // (Firestore may return the PIN as a number even if stored as a string)
