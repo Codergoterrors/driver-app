@@ -423,24 +423,34 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   const handleCancelOrder = useCallback(async () => {
     if (!order || !cancelReason) return;
     isCancellingRef.current = true;
+    const orderId = order.orderId;
+    const riderId = rider?.uid;
     try {
-      await firestore().collection('orders').doc(order.orderId).update({
-        riderId: null, riderName: null, riderPhone: null, status: 'CANCELLED', updatedAt: Date.now(),
-        cancelReason, cancelledBy: 'rider',
-        statusTimeline: firestore.FieldValue.arrayUnion({ status: 'CANCELLED', timestamp: Date.now(), note: `Cancelled by rider: ${cancelReason}` }),
+      // Update order: keep riderId/riderName so customer app can read cancelledBy+cancelReason;
+      // only mark status CANCELLED and record the reason
+      await firestore().collection('orders').doc(orderId).update({
+        status: 'CANCELLED',
+        cancelReason,
+        cancelledBy: 'rider',
+        updatedAt: Date.now(),
+        statusTimeline: firestore.FieldValue.arrayUnion({
+          status: 'CANCELLED',
+          timestamp: Date.now(),
+          note: `Cancelled by rider: ${cancelReason}`,
+        }),
       });
-      if (rider) {
-        await firestore().collection('riders').doc(rider.uid).update({ activeOrderId: null, updatedAt: Date.now() });
-        await database().ref(`liveLocations/${rider.uid}`).update({ activeOrderId: null });
+      if (riderId) {
+        await firestore().collection('riders').doc(riderId).update({ activeOrderId: null, updatedAt: Date.now() });
+        await database().ref(`liveLocations/${riderId}`).update({ activeOrderId: null });
       }
       setShowConfirmCancel(false);
       setShowCancel(false);
-      // Fix #3: Use reset() to fully clear navigation stack on manual cancel
-      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
-      setTimeout(() => {
-        dispatch(clearOrder());
-        isCancellingRef.current = false;
-      }, 300);
+      // Dispatch clearOrder FIRST so the component can unmount cleanly,
+      // then navigate. Using replace('Home') is more reliable than reset()
+      // when inside a nested DrawerNavigator > MainStack.
+      dispatch(clearOrder());
+      isCancellingRef.current = false;
+      navigation.replace('Home');
     } catch (error) {
       console.error('Error cancelling order:', error);
       isCancellingRef.current = false;
