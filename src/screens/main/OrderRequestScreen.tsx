@@ -5,11 +5,13 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
   StatusBar, Dimensions,
 } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
+
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Spacing, darkMapStyle } from '../../constants';
+
 import { useTheme } from '../../theme/ThemeContext';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { setActiveOrder, setIncomingOrder } from '../../store/slices/orderSlice';
@@ -26,7 +28,8 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
   const incomingOrder = useAppSelector(state => state.order.incomingOrder);
   const location = useAppSelector(state => state.location);
   const rider = useAppSelector(state => state.auth.rider);
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<any>(null);
+
 
   const [timeRemaining, setTimeRemaining] = useState(15);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -59,7 +62,7 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     };
   }, []);
 
-  // Fit map to show all three points
+  // Fit camera to show all three points using MapLibre fitBounds
   useEffect(() => {
     if (order && location.latitude !== 0) {
       const coords = [
@@ -68,10 +71,14 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
         { latitude: order.deliveryAddress.lat, longitude: order.deliveryAddress.lng },
       ];
       setTimeout(() => {
-        mapRef.current?.fitToCoordinates(coords, {
-          edgePadding: { top: 100, right: 60, bottom: 350, left: 60 },
-          animated: true,
-        });
+        const lats = coords.map(c => c.latitude);
+        const lngs = coords.map(c => c.longitude);
+        cameraRef.current?.fitBounds(
+          [Math.max(...lngs), Math.max(...lats)],
+          [Math.min(...lngs), Math.min(...lats)],
+          [100, 60, 350, 60],
+          500,
+        );
       }, 500);
     }
   }, [order]);
@@ -189,66 +196,126 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     <View style={styles.container}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
-      {/* Map with route */}
-      <MapView
-        ref={mapRef}
+      {/* OSM Map with route (MapLibre — free, no API key) */}
+      <MapLibreGL.MapView
         style={styles.map}
-        provider={PROVIDER_GOOGLE}
-        customMapStyle={theme === 'dark' ? darkMapStyle : undefined}
-        initialRegion={{
-          latitude: restaurantCoord.latitude,
-          longitude: restaurantCoord.longitude,
-          latitudeDelta: 0.1, longitudeDelta: 0.1,
-        }}
-        scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-        showsUserLocation={false}>
+        styleURL={JSON.stringify({
+          version: 8,
+          sources: {
+            osm: {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '© OpenStreetMap contributors',
+            },
+          },
+          layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
+        })}
+        scrollEnabled={false}
+        zoomEnabled={false}
+        rotateEnabled={false}
+        attributionEnabled={true}
+        logoEnabled={false}>
 
-        {/* Route rendering: use OSRM coordinates if available, otherwise straight lines */}
+        <MapLibreGL.Camera
+          ref={cameraRef}
+          zoomLevel={12}
+          centerCoordinate={[restaurantCoord.longitude, restaurantCoord.latitude]}
+          animationDuration={500}
+        />
+
+        {/* Route rendering */}
         {order.routeCoordinates && order.routeCoordinates.length > 0 ? (
-          <Polyline
-            coordinates={order.routeCoordinates}
-            strokeColor={colors.routeColor || '#000000'}
-            strokeWidth={4}
-          />
+          <MapLibreGL.ShapeSource
+            id="route-source"
+            shape={{
+              type: 'Feature',
+              properties: {},
+              geometry: {
+                type: 'LineString',
+                coordinates: order.routeCoordinates.map((c: any) => [c.longitude, c.latitude]),
+              },
+            }}>
+            <MapLibreGL.LineLayer
+              id="route-layer"
+              style={{ lineColor: colors.routeColor || '#000000', lineWidth: 4 }}
+            />
+          </MapLibreGL.ShapeSource>
         ) : (
           <>
-            {/* Route: driver to pickup (dashed black line) */}
-            <Polyline
-              coordinates={[riderCoord, restaurantCoord]}
-              strokeColor={colors.routeColor || '#000000'} strokeWidth={4}
-              lineDashPattern={[10, 5]}
-            />
-            {/* Route: pickup to drop (solid black line) */}
-            <Polyline
-              coordinates={[restaurantCoord, dropCoord]}
-              strokeColor={colors.routeColor || '#000000'} strokeWidth={4}
-            />
+            {/* Driver → Pickup (dashed) */}
+            <MapLibreGL.ShapeSource
+              id="pickup-route"
+              shape={{
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                  type: 'LineString',
+                  coordinates: [
+                    [riderCoord.longitude, riderCoord.latitude],
+                    [restaurantCoord.longitude, restaurantCoord.latitude],
+                  ],
+                },
+              }}>
+              <MapLibreGL.LineLayer
+                id="pickup-route-layer"
+                style={{
+                  lineColor: colors.routeColor || '#000000',
+                  lineWidth: 4,
+                  lineDasharray: [2, 1],
+                }}
+              />
+            </MapLibreGL.ShapeSource>
+
+            {/* Pickup → Drop (solid) */}
+            <MapLibreGL.ShapeSource
+              id="delivery-route"
+              shape={{
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                  type: 'LineString',
+                  coordinates: [
+                    [restaurantCoord.longitude, restaurantCoord.latitude],
+                    [dropCoord.longitude, dropCoord.latitude],
+                  ],
+                },
+              }}>
+              <MapLibreGL.LineLayer
+                id="delivery-route-layer"
+                style={{ lineColor: colors.routeColor || '#000000', lineWidth: 4 }}
+              />
+            </MapLibreGL.ShapeSource>
           </>
         )}
 
-        {/* Restaurant / pickup marker (green) */}
-        <Marker coordinate={restaurantCoord} anchor={{ x: 0.5, y: 0.5 }}>
+        {/* Restaurant/pickup marker (green) */}
+        <MapLibreGL.PointAnnotation
+          id="restaurant-marker"
+          coordinate={[restaurantCoord.longitude, restaurantCoord.latitude]}>
           <View style={styles.pickupMarker}>
             <Icon name="silverware-fork-knife" size={16} color={colors.white} />
           </View>
-        </Marker>
+        </MapLibreGL.PointAnnotation>
 
-        {/* Drop-off marker (black/white depending on theme) */}
-        <Marker coordinate={dropCoord} anchor={{ x: 0.5, y: 1 }}>
+        {/* Drop-off marker */}
+        <MapLibreGL.PointAnnotation
+          id="drop-marker"
+          coordinate={[dropCoord.longitude, dropCoord.latitude]}>
           <View style={styles.dropMarker}>
-            <View style={styles.dropMarkerInner}>
-              <Icon name="map-marker" size={28} color={colors.dropoffPin || colors.errorRed} />
-            </View>
+            <Icon name="map-marker" size={28} color={colors.dropoffPin || colors.errorRed} />
           </View>
-        </Marker>
+        </MapLibreGL.PointAnnotation>
 
         {/* Rider marker (blue) */}
-        <Marker coordinate={riderCoord} anchor={{ x: 0.5, y: 0.5 }}>
+        <MapLibreGL.PointAnnotation
+          id="rider-marker"
+          coordinate={[riderCoord.longitude, riderCoord.latitude]}>
           <View style={styles.riderDot}>
             <Icon name="navigation" size={18} color={colors.white} />
           </View>
-        </Marker>
-      </MapView>
+        </MapLibreGL.PointAnnotation>
+      </MapLibreGL.MapView>
 
       {/* Bottom card — ORIGINAL DESIGN */}
       <Animated.View style={[styles.bottomCard, { transform: [{ translateY: slideUpAnim }] }]}>
