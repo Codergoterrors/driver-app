@@ -48,7 +48,11 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [isPanelExpanded, setIsPanelExpanded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const watchId = useRef<number | null>(null);
-  const orderListenerRef = useRef<(() => void) | null>(null);
+  // Two listeners: one for new proposal flow (proposedRiderId), one for legacy flow (riderId)
+  const proposedListenerRef = useRef<(() => void) | null>(null);
+  const assignedListenerRef = useRef<(() => void) | null>(null);
+  // Guard to prevent navigating twice for the same order
+  const navigatedOrderRef = useRef<string | null>(null);
 
   // Pulsing ring animation for GO button
   useEffect(() => {
@@ -224,28 +228,62 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
   }, [isOnline, rider]);
 
-  // Listen for incoming orders when online
+  // Reset navigation guard every time HomeScreen is focused (e.g. after declining an order)
   useEffect(() => {
-    if (isOnline && rider) {
-      orderListenerRef.current = firestore()
-        .collection('orders')
-        .where('riderId', '==', rider.uid)
-        .where('status', '==', 'RIDER_ASSIGNED')
-        .onSnapshot(snapshot => {
-          if (snapshot && !snapshot.empty) {
-            const doc = snapshot.docs[0];
-            const orderData = { orderId: doc.id, ...doc.data() } as Order;
-            dispatch(setIncomingOrder(orderData));
-            navigation.navigate('OrderRequest', { orderId: doc.id });
-          }
-        });
+    const unsubFocus = navigation.addListener('focus', () => {
+      navigatedOrderRef.current = null;
+    });
+    return unsubFocus;
+  }, [navigation]);
 
-      return () => {
-        if (orderListenerRef.current) {
-          orderListenerRef.current();
-        }
-      };
-    }
+  // Listen for incoming orders when online.
+  // Uses TWO single-field queries (no composite Firestore index needed):
+  //   • proposedListenerRef — new proposal flow: proposedRiderId set, status PLACED
+  //   • assignedListenerRef — legacy direct-assign flow: riderId set, status RIDER_ASSIGNED
+  useEffect(() => {
+    if (!isOnline || !rider) return;
+
+    // Reset navigation guard on each online session
+    navigatedOrderRef.current = null;
+
+    const navigateToOrder = (orderId: string, data: any) => {
+      if (navigatedOrderRef.current === orderId) return; // already navigating
+      navigatedOrderRef.current = orderId;
+      const orderData = { orderId, ...data } as Order;
+      dispatch(setIncomingOrder(orderData));
+      navigation.navigate('OrderRequest', { orderId });
+    };
+
+    // Listener 1 — new proposal flow (proposedRiderId assigned, status PLACED)
+    proposedListenerRef.current = firestore()
+      .collection('orders')
+      .where('proposedRiderId', '==', rider.uid)
+      .onSnapshot(
+        snapshot => {
+          if (!snapshot || snapshot.empty) return;
+          const doc = snapshot.docs.find(d => d.data().status === 'PLACED');
+          if (doc) navigateToOrder(doc.id, doc.data());
+        },
+        error => console.error('[OrderListener/proposed]', error),
+      );
+
+    // Listener 2 — legacy direct-assign flow (riderId set, status RIDER_ASSIGNED)
+    assignedListenerRef.current = firestore()
+      .collection('orders')
+      .where('riderId', '==', rider.uid)
+      .onSnapshot(
+        snapshot => {
+          if (!snapshot || snapshot.empty) return;
+          const doc = snapshot.docs.find(d => d.data().status === 'RIDER_ASSIGNED');
+          if (doc) navigateToOrder(doc.id, doc.data());
+        },
+        error => console.error('[OrderListener/assigned]', error),
+      );
+
+    return () => {
+      proposedListenerRef.current?.();
+      assignedListenerRef.current?.();
+    };
   }, [isOnline, rider]);
 
   const handleGoOnline = useCallback(async () => {
