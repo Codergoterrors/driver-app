@@ -14,7 +14,24 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
+// Disable MapLibre token requirement — we use free OSM tiles
+MapLibreGL.setAccessToken(null);
+
+// Free OpenStreetMap tile style — no API key, no cost
+const OSM_STYLE = JSON.stringify({
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
+});
+
 import Geolocation from '@react-native-community/geolocation';
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
@@ -39,7 +56,8 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const todayEarnings = useAppSelector(state => state.order.todayEarnings);
   const location = useAppSelector(state => state.location);
 
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<any>(null);
+
   const goButtonScale = useRef(new Animated.Value(1)).current;
   const goButtonOpacity = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -146,37 +164,39 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     };
   }, []);
 
-  // Animate map to user location once map is ready and we have a location
+  // Animate camera to user location once map is ready and we have a location
   useEffect(() => {
-    if (mapReady && location.latitude !== 0 && mapRef.current) {
+    if (mapReady && location.latitude !== 0 && cameraRef.current) {
       setTimeout(() => {
-        mapRef.current?.animateToRegion({
-          latitude: location.latitude,
-          longitude: location.longitude,
-          latitudeDelta: 0.015,
-          longitudeDelta: 0.015,
-        }, 500);
+        cameraRef.current?.setCamera({
+          centerCoordinate: [location.longitude, location.latitude],
+          zoomLevel: 14,
+          animationDuration: 500,
+        });
       }, 300);
     }
   }, [mapReady]);
 
-  // Relocate map to driver's current GPS position
+  // Relocate camera to driver's current GPS position
   const handleRelocate = useCallback(() => {
     if (!mapReady) return;
     if (location.latitude !== 0) {
-      mapRef.current?.animateToRegion({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
-      }, 500);
+      cameraRef.current?.setCamera({
+        centerCoordinate: [location.longitude, location.latitude],
+        zoomLevel: 14,
+        animationDuration: 500,
+      });
     } else {
       Geolocation.getCurrentPosition(
         position => {
           const { latitude, longitude } = position.coords;
           dispatch(updateLocation({ latitude, longitude }));
           if (mapReady) {
-            mapRef.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 500);
+            cameraRef.current?.setCamera({
+              centerCoordinate: [longitude, latitude],
+              zoomLevel: 14,
+              animationDuration: 500,
+            });
           }
         },
         error => console.log('Relocate error:', error),
@@ -389,42 +409,38 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         translucent
       />
 
-      {/* Full Screen Map */}
-      <MapView
-        ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+      {/* Full Screen OSM Map (MapLibre — free, no API key) */}
+      <MapLibreGL.MapView
         style={styles.map}
-        initialRegion={{
-          latitude: location.latitude || 18.5204,
-          longitude: location.longitude || 73.8567,
-          latitudeDelta: 0.015,
-          longitudeDelta: 0.015,
-        }}
-        showsUserLocation={true}
-        showsMyLocationButton={false}
-        showsCompass={false}
-        onMapReady={() => setMapReady(true)}
-        mapType="standard">
+        styleURL={OSM_STYLE}
+        onDidFinishLoadingMap={() => setMapReady(true)}
+        attributionEnabled={true}
+        logoEnabled={false}
+        compassEnabled={false}>
+        <MapLibreGL.Camera
+          ref={cameraRef}
+          zoomLevel={14}
+          centerCoordinate={[
+            location.longitude || 73.8567,
+            location.latitude || 18.5204,
+          ]}
+          animationDuration={500}
+        />
         {/* Rider location marker */}
         {location.latitude !== 0 && (
-          <Marker
-            coordinate={{
-              latitude: location.latitude,
-              longitude: location.longitude,
-            }}
-            anchor={{ x: 0.5, y: 0.5 }}>
+          <MapLibreGL.PointAnnotation
+            id="rider-location"
+            coordinate={[location.longitude, location.latitude]}>
             <View
               style={[
                 styles.riderMarker,
-                {
-                  transform: [{ rotate: `${location.heading}deg` }],
-                },
+                { transform: [{ rotate: `${location.heading}deg` }] },
               ]}>
               <Icon name="navigation" size={24} color={Colors.black} />
             </View>
-          </Marker>
+          </MapLibreGL.PointAnnotation>
         )}
-      </MapView>
+      </MapLibreGL.MapView>
 
       {/* Top Bar Overlay */}
       <View style={styles.topBar}>
