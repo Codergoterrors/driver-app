@@ -15,8 +15,8 @@ import {
   Alert,
 } from 'react-native';
 import MapLibreGL from '@maplibre/maplibre-react-native';
-// Disable MapLibre token requirement — we use free OSM tiles
-MapLibreGL.setAccessToken(null);
+// setAccessToken is now called once in App.tsx - do not call here (causes crash on New Architecture)
+
 
 // Free OpenStreetMap tile style — no API key, no cost
 const OSM_STYLE = JSON.stringify({

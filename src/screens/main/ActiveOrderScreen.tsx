@@ -6,7 +6,6 @@ import {
   Dimensions, Platform,
 } from 'react-native';
 import MapLibreGL from '@maplibre/maplibre-react-native';
-MapLibreGL.setAccessToken(null);
 
 const OSM_STYLE = JSON.stringify({
   version: 8,

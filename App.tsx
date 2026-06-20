@@ -8,6 +8,11 @@ import { ActivityIndicator, View } from 'react-native';
 import { store, persistor } from './src/store';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
+import MapLibreGL from '@maplibre/maplibre-react-native';
+// Initialize MapLibre once here after native modules are ready.
+// Calling setAccessToken at module-level in screens causes
+// "Cannot read property 'setAccessToken' of undefined" on the New Architecture.
+MapLibreGL.setAccessToken(null);
 
 const App: React.FC = () => {
   return (
