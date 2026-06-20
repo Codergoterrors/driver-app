@@ -1,5 +1,6 @@
 package com.foodapp.driver
 
+import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -12,6 +13,18 @@ class MainActivity : ReactActivity() {
    * rendering of the component.
    */
   override fun getMainComponentName(): String = "DriverApp"
+
+  /**
+   * Fix for react-native-screens crash:
+   * "Screen fragments should never be restored."
+   * See: https://github.com/software-mansion/react-native-screens/issues/17
+   *
+   * Passing null to super.onCreate() prevents the Android Fragment system from
+   * trying to restore ScreenFragment state, which is incompatible with RN Screens.
+   */
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(null)
+  }
 
   /**
    * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
