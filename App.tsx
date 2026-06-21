@@ -11,13 +11,6 @@ import AppNavigator from './src/navigation/AppNavigator';
 import MapLibreGL from '@maplibre/maplibre-react-native';
 
 const App: React.FC = () => {
-  useEffect(() => {
-    // Must be called inside a component lifecycle (useEffect), NOT at module level.
-    // On the New Architecture (Fabric/TurboModules), native modules aren't available
-    // during bundle evaluation — calling setAccessToken at module scope causes
-    // "Cannot read property 'setAccessToken' of undefined" crash on launch.
-    MapLibreGL.setAccessToken(null);
-  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
