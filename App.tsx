@@ -1,5 +1,5 @@
 // App.tsx — Root component with Redux Provider + PersistGate
-import React from 'react';
+import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
@@ -9,12 +9,16 @@ import { store, persistor } from './src/store';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import MapLibreGL from '@maplibre/maplibre-react-native';
-// Initialize MapLibre once here after native modules are ready.
-// Calling setAccessToken at module-level in screens causes
-// "Cannot read property 'setAccessToken' of undefined" on the New Architecture.
-MapLibreGL.setAccessToken(null);
 
 const App: React.FC = () => {
+  useEffect(() => {
+    // Must be called inside a component lifecycle (useEffect), NOT at module level.
+    // On the New Architecture (Fabric/TurboModules), native modules aren't available
+    // during bundle evaluation — calling setAccessToken at module scope causes
+    // "Cannot read property 'setAccessToken' of undefined" crash on launch.
+    MapLibreGL.setAccessToken(null);
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Provider store={store}>
