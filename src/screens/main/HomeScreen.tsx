@@ -14,7 +14,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import MapLibreGL from '@maplibre/maplibre-react-native';
+import { Map, Camera, PointAnnotation, ShapeSource, LineLayer, SymbolLayer } from '@maplibre/maplibre-react-native';
 // setAccessToken is now called once in App.tsx - do not call here (causes crash on New Architecture)
 
 
@@ -410,14 +410,14 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       />
 
       {/* Full Screen OSM Map (MapLibre — free, no API key) */}
-      <MapLibreGL.MapView
+      <Map
         style={styles.map}
-        styleURL={OSM_STYLE}
+        mapStyle={OSM_STYLE}
         onDidFinishLoadingMap={() => setMapReady(true)}
         attributionEnabled={true}
         logoEnabled={false}
         compassEnabled={false}>
-        <MapLibreGL.Camera
+        <Camera
           ref={cameraRef}
           zoomLevel={14}
           centerCoordinate={[
@@ -428,7 +428,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         />
         {/* Rider location marker */}
         {location.latitude !== 0 && (
-          <MapLibreGL.PointAnnotation
+          <PointAnnotation
             id="rider-location"
             coordinate={[location.longitude, location.latitude]}>
             <View
@@ -438,9 +438,9 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               ]}>
               <Icon name="navigation" size={24} color={Colors.black} />
             </View>
-          </MapLibreGL.PointAnnotation>
+          </PointAnnotation>
         )}
-      </MapLibreGL.MapView>
+      </Map>
 
       {/* Top Bar Overlay */}
       <View style={styles.topBar}>
