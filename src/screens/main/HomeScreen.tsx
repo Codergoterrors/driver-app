@@ -14,12 +14,12 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { Map, Camera, PointAnnotation, ShapeSource, LineLayer, SymbolLayer } from '@maplibre/maplibre-react-native';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 // setAccessToken is now called once in App.tsx - do not call here (causes crash on New Architecture)
 
 
 // Free OpenStreetMap tile style — no API key, no cost
-const OSM_STYLE = {
+const OSM_STYLE = JSON.stringify({
   version: 8,
   sources: {
     osm: {
@@ -30,7 +30,7 @@ const OSM_STYLE = {
     },
   },
   layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-};
+});
 
 import Geolocation from '@react-native-community/geolocation';
 import firestore from '@react-native-firebase/firestore';
@@ -410,14 +410,14 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       />
 
       {/* Full Screen OSM Map (MapLibre — free, no API key) */}
-      <Map
+      <MapLibreGL.MapView
         style={styles.map}
-        mapStyle={OSM_STYLE}
+        styleURL={OSM_STYLE}
         onDidFinishLoadingMap={() => setMapReady(true)}
         attributionEnabled={true}
         logoEnabled={false}
         compassEnabled={false}>
-        <Camera
+        <MapLibreGL.Camera
           ref={cameraRef}
           zoomLevel={14}
           centerCoordinate={[
@@ -428,7 +428,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         />
         {/* Rider location marker */}
         {location.latitude !== 0 && (
-          <PointAnnotation
+          <MapLibreGL.PointAnnotation
             id="rider-location"
             coordinate={[location.longitude, location.latitude]}>
             <View
@@ -438,9 +438,9 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               ]}>
               <Icon name="navigation" size={24} color={Colors.black} />
             </View>
-          </PointAnnotation>
+          </MapLibreGL.PointAnnotation>
         )}
-      </Map>
+      </MapLibreGL.MapView>
 
       {/* Top Bar Overlay */}
       <View style={styles.topBar}>

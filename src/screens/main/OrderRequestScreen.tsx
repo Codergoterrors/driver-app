@@ -5,7 +5,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
   StatusBar, Dimensions,
 } from 'react-native';
-import { Map, Camera, PointAnnotation, ShapeSource, LineLayer, SymbolLayer } from '@maplibre/maplibre-react-native';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
@@ -197,9 +197,9 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
       {/* OSM Map with route (MapLibre — free, no API key) */}
-      <Map
+      <MapLibreGL.MapView
         style={styles.map}
-        mapStyle={{
+        styleURL={JSON.stringify({
           version: 8,
           sources: {
             osm: {
@@ -210,14 +210,14 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
             },
           },
           layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-        }}
+        })}
         scrollEnabled={false}
         zoomEnabled={false}
         rotateEnabled={false}
         attributionEnabled={true}
         logoEnabled={false}>
 
-        <Camera
+        <MapLibreGL.Camera
           ref={cameraRef}
           zoomLevel={12}
           centerCoordinate={[restaurantCoord.longitude, restaurantCoord.latitude]}
@@ -226,7 +226,7 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
 
         {/* Route rendering */}
         {order.routeCoordinates && order.routeCoordinates.length > 0 ? (
-          <ShapeSource
+          <MapLibreGL.ShapeSource
             id="route-source"
             shape={{
               type: 'Feature',
@@ -236,15 +236,15 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
                 coordinates: order.routeCoordinates.map((c: any) => [c.longitude, c.latitude]),
               },
             }}>
-            <LineLayer
+            <MapLibreGL.LineLayer
               id="route-layer"
               style={{ lineColor: colors.routeColor || '#000000', lineWidth: 4 }}
             />
-          </ShapeSource>
+          </MapLibreGL.ShapeSource>
         ) : (
           <>
             {/* Driver → Pickup (dashed) */}
-            <ShapeSource
+            <MapLibreGL.ShapeSource
               id="pickup-route"
               shape={{
                 type: 'Feature',
@@ -257,7 +257,7 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
                   ],
                 },
               }}>
-              <LineLayer
+              <MapLibreGL.LineLayer
                 id="pickup-route-layer"
                 style={{
                   lineColor: colors.routeColor || '#000000',
@@ -265,10 +265,10 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
                   lineDasharray: [2, 1],
                 }}
               />
-            </ShapeSource>
+            </MapLibreGL.ShapeSource>
 
             {/* Pickup → Drop (solid) */}
-            <ShapeSource
+            <MapLibreGL.ShapeSource
               id="delivery-route"
               shape={{
                 type: 'Feature',
@@ -281,41 +281,41 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
                   ],
                 },
               }}>
-              <LineLayer
+              <MapLibreGL.LineLayer
                 id="delivery-route-layer"
                 style={{ lineColor: colors.routeColor || '#000000', lineWidth: 4 }}
               />
-            </ShapeSource>
+            </MapLibreGL.ShapeSource>
           </>
         )}
 
         {/* Restaurant/pickup marker (green) */}
-        <PointAnnotation
+        <MapLibreGL.PointAnnotation
           id="restaurant-marker"
           coordinate={[restaurantCoord.longitude, restaurantCoord.latitude]}>
           <View style={styles.pickupMarker}>
             <Icon name="silverware-fork-knife" size={16} color={colors.white} />
           </View>
-        </PointAnnotation>
+        </MapLibreGL.PointAnnotation>
 
         {/* Drop-off marker */}
-        <PointAnnotation
+        <MapLibreGL.PointAnnotation
           id="drop-marker"
           coordinate={[dropCoord.longitude, dropCoord.latitude]}>
           <View style={styles.dropMarker}>
             <Icon name="map-marker" size={28} color={colors.dropoffPin || colors.errorRed} />
           </View>
-        </PointAnnotation>
+        </MapLibreGL.PointAnnotation>
 
         {/* Rider marker (blue) */}
-        <PointAnnotation
+        <MapLibreGL.PointAnnotation
           id="rider-marker"
           coordinate={[riderCoord.longitude, riderCoord.latitude]}>
           <View style={styles.riderDot}>
             <Icon name="navigation" size={18} color={colors.white} />
           </View>
-        </PointAnnotation>
-      </Map>
+        </MapLibreGL.PointAnnotation>
+      </MapLibreGL.MapView>
 
       {/* Bottom card — ORIGINAL DESIGN */}
       <Animated.View style={[styles.bottomCard, { transform: [{ translateY: slideUpAnim }] }]}>
