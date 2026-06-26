@@ -19,7 +19,7 @@ import { Map, Camera, PointAnnotation, ShapeSource, LineLayer, SymbolLayer } fro
 
 
 // Free OpenStreetMap tile style — no API key, no cost
-const OSM_STYLE = JSON.stringify({
+const OSM_STYLE = {
   version: 8,
   sources: {
     osm: {
@@ -30,7 +30,7 @@ const OSM_STYLE = JSON.stringify({
     },
   },
   layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-});
+};
 
 import Geolocation from '@react-native-community/geolocation';
 import firestore from '@react-native-firebase/firestore';

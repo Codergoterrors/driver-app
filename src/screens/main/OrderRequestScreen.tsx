@@ -199,7 +199,7 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
       {/* OSM Map with route (MapLibre — free, no API key) */}
       <Map
         style={styles.map}
-        mapStyle={JSON.stringify({
+        mapStyle={{
           version: 8,
           sources: {
             osm: {
@@ -210,7 +210,7 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
             },
           },
           layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-        })}
+        }}
         scrollEnabled={false}
         zoomEnabled={false}
         rotateEnabled={false}

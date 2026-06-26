@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import { Map, Camera, PointAnnotation, ShapeSource, LineLayer, SymbolLayer } from '@maplibre/maplibre-react-native';
 
-const OSM_STYLE = JSON.stringify({
+const OSM_STYLE = {
   version: 8,
   sources: {
     osm: {
@@ -18,7 +18,7 @@ const OSM_STYLE = JSON.stringify({
     },
   },
   layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-});
+};
 
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
