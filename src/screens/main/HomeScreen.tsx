@@ -19,18 +19,8 @@ import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
 
 
 // Free OpenStreetMap tile style — no API key, no cost
-const OSM_STYLE = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-};
+// Free OpenStreetMap tile style via OpenFreeMap — no API key needed
+const OSM_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
 import Geolocation from '@react-native-community/geolocation';
 import firestore from '@react-native-firebase/firestore';
@@ -410,37 +400,38 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       />
 
       {/* Full Screen OSM Map (MapLibre — free, no API key) */}
-      <Map
-        style={styles.map}
-        mapStyle={OSM_STYLE}
-        onDidFinishLoadingMap={() => setMapReady(true)}
-        attributionEnabled={true}
-        logoEnabled={false}
-        compassEnabled={false}>
-        <Camera
-          ref={cameraRef}
-          zoomLevel={14}
-          centerCoordinate={[
-            location.longitude || 73.8567,
-            location.latitude || 18.5204,
-          ]}
-          animationDuration={500}
-        />
-        {/* Rider location marker */}
-        {location.latitude !== 0 && (
-          <Marker
-            id="rider-location"
-            coordinate={[location.longitude, location.latitude]}>
-            <View
-              style={[
-                styles.riderMarker,
-                { transform: [{ rotate: `${location.heading}deg` }] },
-              ]}>
-              <Icon name="navigation" size={24} color={Colors.black} />
-            </View>
-          </Marker>
-        )}
-      </Map>
+      <View style={styles.mapContainer}>
+        <Map
+          mapStyle={OSM_STYLE}
+          onDidFinishLoadingMap={() => setMapReady(true)}
+          attributionEnabled={true}
+          logoEnabled={false}
+          compassEnabled={false}>
+          <Camera
+            ref={cameraRef}
+            zoomLevel={14}
+            centerCoordinate={[
+              location.longitude || 73.8567,
+              location.latitude || 18.5204,
+            ]}
+            animationDuration={500}
+          />
+          {/* Rider location marker */}
+          {location.latitude !== 0 && (
+            <Marker
+              id="rider-location"
+              coordinate={[location.longitude, location.latitude]}>
+              <View
+                style={[
+                  styles.riderMarker,
+                  { transform: [{ rotate: `${location.heading}deg` }] },
+                ]}>
+                <Icon name="navigation" size={24} color={Colors.black} />
+              </View>
+            </Marker>
+          )}
+        </Map>
+      </View>
 
       {/* Top Bar Overlay */}
       <View style={styles.topBar}>
@@ -608,10 +599,14 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: 'transparent',
+  },
+  mapContainer: {
+    ...StyleSheet.absoluteFillObject,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'transparent',
   },
 
   // Top Bar

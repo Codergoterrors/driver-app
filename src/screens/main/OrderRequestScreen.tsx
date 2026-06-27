@@ -199,18 +199,7 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
       {/* OSM Map with route (MapLibre — free, no API key) */}
       <Map
         style={styles.map}
-        mapStyle={{
-          version: 8,
-          sources: {
-            osm: {
-              type: 'raster',
-              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-              tileSize: 256,
-              attribution: '© OpenStreetMap contributors',
-            },
-          },
-          layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-        }}
+        mapStyle="https://tiles.openfreemap.org/styles/liberty"
         scrollEnabled={false}
         zoomEnabled={false}
         rotateEnabled={false}
