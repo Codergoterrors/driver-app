@@ -502,6 +502,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
 
       {/* Map */}
       <Map
+        androidView="texture"
         style={styles.map}
         mapStyle={OSM_STYLE}
         attributionEnabled={true}

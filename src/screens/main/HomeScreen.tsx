@@ -402,6 +402,7 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       {/* Full Screen OSM Map (MapLibre — free, no API key) */}
       <View style={styles.mapContainer}>
         <Map
+          androidView="texture"
           mapStyle={OSM_STYLE}
           onDidFinishLoadingMap={() => setMapReady(true)}
           attributionEnabled={true}

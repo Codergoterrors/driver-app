@@ -198,6 +198,7 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
 
       {/* OSM Map with route (MapLibre — free, no API key) */}
       <Map
+        androidView="texture"
         style={styles.map}
         mapStyle="https://tiles.openfreemap.org/styles/liberty"
         scrollEnabled={false}
