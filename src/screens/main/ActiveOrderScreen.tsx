@@ -5,7 +5,7 @@ import {
   StatusBar, Animated, Linking, TextInput, PanResponder,
   Dimensions, Platform,
 } from 'react-native';
-import MapLibreGL from '@maplibre/maplibre-react-native';
+import { Map, Camera, Marker, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 
 const OSM_STYLE = JSON.stringify({
   version: 8,
@@ -512,14 +512,14 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       </View>
 
       {/* Map */}
-      <MapLibreGL.MapView
+      <Map
         style={styles.map}
         styleURL={OSM_STYLE}
         attributionEnabled={true}
         logoEnabled={false}
         compassEnabled={false}>
 
-        <MapLibreGL.Camera
+        <Camera
           ref={cameraRef}
           zoomLevel={14}
           centerCoordinate={[
@@ -531,9 +531,9 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
 
         {/* Route polyline — OSRM road-following, bold and dark */}
         {displayRoute.length >= 2 && (
-          <MapLibreGL.ShapeSource
+          <GeoJSONSource
             id="active-route"
-            shape={{
+            data={{
               type: 'Feature',
               properties: {},
               geometry: {
@@ -541,46 +541,45 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
                 coordinates: displayRoute.map(c => [c.longitude, c.latitude]),
               },
             }}>
-            <MapLibreGL.LineLayer
+            <Layer
               id="active-route-layer"
-              style={{
-                lineColor: '#1A1A2E',
-                lineWidth: 6,
-                lineCap: 'round',
-                lineJoin: 'round',
+              type="line"
+              paint={{
+                'line-color': '#1A1A2E',
+                'line-width': 6,
               }}
             />
-          </MapLibreGL.ShapeSource>
+          </GeoJSONSource>
         )}
 
         {/* Destination marker */}
         {phase === 'pickup' ? (
-          <MapLibreGL.PointAnnotation
+          <Marker
             id="dest-marker"
             coordinate={[destCoord.longitude, destCoord.latitude]}>
             <View style={[styles.destMarker, { backgroundColor: colors.onlineGreen }]}>
               <Icon name="silverware-fork-knife" size={16} color={colors.white} />
             </View>
-          </MapLibreGL.PointAnnotation>
+          </Marker>
         ) : (
-          <MapLibreGL.PointAnnotation
+          <Marker
             id="dest-marker"
             coordinate={[destCoord.longitude, destCoord.latitude]}>
             <RedDropPin />
-          </MapLibreGL.PointAnnotation>
+          </Marker>
         )}
 
         {/* Driver marker */}
         {location.latitude !== 0 && (
-          <MapLibreGL.PointAnnotation
+          <Marker
             id="driver-marker"
             coordinate={[location.longitude, location.latitude]}>
             <View style={styles.riderMarker}>
               <Icon name="navigation" size={18} color={colors.white} />
             </View>
-          </MapLibreGL.PointAnnotation>
+          </Marker>
         )}
-      </MapLibreGL.MapView>
+      </Map>
 
       {/* Navigate button */}
       <TouchableOpacity style={styles.navigateBtn} onPress={openNavigation} activeOpacity={0.85}>
