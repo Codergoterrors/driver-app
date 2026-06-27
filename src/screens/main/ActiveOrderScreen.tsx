@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 
-const OSM_STYLE = JSON.stringify({
+const OSM_STYLE = {
   version: 8,
   sources: {
     osm: {
@@ -18,7 +18,7 @@ const OSM_STYLE = JSON.stringify({
     },
   },
   layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-});
+};
 
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
@@ -514,7 +514,7 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       {/* Map */}
       <Map
         style={styles.map}
-        styleURL={OSM_STYLE}
+        mapStyle={OSM_STYLE}
         attributionEnabled={true}
         logoEnabled={false}
         compassEnabled={false}>
