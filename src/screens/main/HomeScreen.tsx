@@ -14,7 +14,9 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import LeafletMap from '../../components/LeafletMap';
+import WebView from 'react-native-webview';
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 import Geolocation from '@react-native-community/geolocation';
 import firestore from '@react-native-firebase/firestore';
@@ -393,26 +395,24 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         translucent
       />
 
-      {/* Full Screen OSM Map using Leaflet.js (WebView) — 100% reliable */}
-      <View style={styles.mapContainer}>
-        <LeafletMap
-          latitude={location.latitude || 18.5204}
-          longitude={location.longitude || 73.8567}
-          zoom={14}
-          markers={
-            location.latitude !== 0
-              ? [{
-                  id: 'rider',
-                  latitude: location.latitude,
-                  longitude: location.longitude,
-                  icon: 'driver',
-                }]
-              : []
-          }
-          onMapReady={() => setMapReady(true)}
-          style={StyleSheet.absoluteFillObject}
-        />
-      </View>
+      {/* Full-screen OSM map — explicit pixel dimensions, inline WebView, no nesting issues */}
+      <WebView
+        style={{ position: 'absolute', top: 0, left: 0, width: SCREEN_W, height: SCREEN_H }}
+        source={{
+          uri:
+            'https://www.openstreetmap.org/export/embed.html' +
+            '?bbox=' +
+            [(location.longitude || 73.8567) - 0.015, (location.latitude || 18.5204) - 0.015,
+             (location.longitude || 73.8567) + 0.015, (location.latitude || 18.5204) + 0.015].join('%2C') +
+            '&layer=mapnik' +
+            '&marker=' + (location.latitude || 18.5204) + '%2C' + (location.longitude || 73.8567),
+        }}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        androidLayerType="hardware"
+        mixedContentMode="always"
+        onLoad={() => setMapReady(true)}
+      />
 
       {/* Top Bar Overlay */}
       <View style={styles.topBar}>
