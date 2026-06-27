@@ -5,7 +5,8 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
   StatusBar, Dimensions,
 } from 'react-native';
-import LeafletMap from '../../components/LeafletMap';
+import WebView from 'react-native-webview';
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';
@@ -196,119 +197,27 @@ const OrderRequestScreen: React.FC<{ navigation: any; route: any }> = ({ navigat
     <View style={styles.container}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
-      {/* OSM Map with route (MapLibre — free, no API key) */}
-      <Map
-        androidView="texture"
-        style={styles.map}
-        mapStyle="https://tiles.openfreemap.org/styles/liberty"
-        scrollEnabled={false}
-        zoomEnabled={false}
-        rotateEnabled={false}
-        attributionEnabled={true}
-        logoEnabled={false}>
-
-        <Camera
-          ref={cameraRef}
-          zoomLevel={12}
-          centerCoordinate={[restaurantCoord.longitude, restaurantCoord.latitude]}
-          animationDuration={500}
-        />
-
-        {/* Route rendering */}
-        {order.routeCoordinates && order.routeCoordinates.length > 0 ? (
-          <GeoJSONSource
-            id="route-source"
-            data={{
-              type: 'Feature',
-              properties: {},
-              geometry: {
-                type: 'LineString',
-                coordinates: order.routeCoordinates.map((c: any) => [c.longitude, c.latitude]),
-              },
-            }}>
-            <Layer
-              id="route-layer"
-              type="line"
-              paint={{ 'line-color': colors.routeColor || '#000000', 'line-width': 4 }}
-            />
-          </GeoJSONSource>
-        ) : (
-          <>
-            {/* Driver → Pickup (dashed) */}
-            <GeoJSONSource
-              id="pickup-route"
-              data={{
-                type: 'Feature',
-                properties: {},
-                geometry: {
-                  type: 'LineString',
-                  coordinates: [
-                    [riderCoord.longitude, riderCoord.latitude],
-                    [restaurantCoord.longitude, restaurantCoord.latitude],
-                  ],
-                },
-              }}>
-              <Layer
-                id="pickup-route-layer"
-                type="line"
-                paint={{
-                  'line-color': colors.routeColor || '#000000',
-                  'line-width': 4,
-                  'line-dasharray': [2, 1],
-                }}
-              />
-            </GeoJSONSource>
-
-            {/* Pickup → Drop (solid) */}
-            <GeoJSONSource
-              id="delivery-route"
-              data={{
-                type: 'Feature',
-                properties: {},
-                geometry: {
-                  type: 'LineString',
-                  coordinates: [
-                    [restaurantCoord.longitude, restaurantCoord.latitude],
-                    [dropCoord.longitude, dropCoord.latitude],
-                  ],
-                },
-              }}>
-              <Layer
-                id="delivery-route-layer"
-                type="line"
-                paint={{ 'line-color': colors.routeColor || '#000000', 'line-width': 4 }}
-              />
-            </GeoJSONSource>
-          </>
-        )}
-
-        {/* Restaurant/pickup marker (green) */}
-        <Marker
-          id="restaurant-marker"
-          coordinate={[restaurantCoord.longitude, restaurantCoord.latitude]}>
-          <View style={styles.pickupMarker}>
-            <Icon name="silverware-fork-knife" size={16} color={colors.white} />
-          </View>
-        </Marker>
-
-        {/* Drop-off marker */}
-        <Marker
-          id="drop-marker"
-          coordinate={[dropCoord.longitude, dropCoord.latitude]}>
-          <View style={styles.dropMarker}>
-            <Icon name="map-marker" size={28} color={colors.dropoffPin || colors.errorRed} />
-          </View>
-        </Marker>
-
-        {/* Rider marker (blue) */}
-        <Marker
-          id="rider-marker"
-          coordinate={[riderCoord.longitude, riderCoord.latitude]}>
-          <View style={styles.riderDot}>
-            <Icon name="navigation" size={18} color={colors.white} />
-          </View>
-        </Marker>
-      </Map>
+      {/* Map — inline WebView, explicit pixel dimensions */}
+      <WebView
+        style={{ position: 'absolute', top: 0, left: 0, width: SCREEN_W, height: SCREEN_H }}
+        source={{
+          uri:
+            'https://www.openstreetmap.org/export/embed.html' +
+            '?bbox=' +
+            [
+              Math.min(restaurantCoord.longitude, dropCoord.longitude, riderCoord.longitude) - 0.02,
+              Math.min(restaurantCoord.latitude, dropCoord.latitude, riderCoord.latitude) - 0.02,
+              Math.max(restaurantCoord.longitude, dropCoord.longitude, riderCoord.longitude) + 0.02,
+              Math.max(restaurantCoord.latitude, dropCoord.latitude, riderCoord.latitude) + 0.02,
+            ].join('%2C') +
+            '&layer=mapnik' +
+            '&marker=' + restaurantCoord.latitude + '%2C' + restaurantCoord.longitude,
+        }}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        androidLayerType="hardware"
+        mixedContentMode="always"
+      />
 
       {/* Bottom card — ORIGINAL DESIGN */}
       <Animated.View style={[styles.bottomCard, { transform: [{ translateY: slideUpAnim }] }]}>

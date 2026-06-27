@@ -5,7 +5,8 @@ import {
   StatusBar, Animated, Linking, TextInput, PanResponder,
   Dimensions, Platform,
 } from 'react-native';
-import LeafletMap from '../../components/LeafletMap';
+import WebView from 'react-native-webview';
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 
 import firestore from '@react-native-firebase/firestore';
@@ -499,76 +500,27 @@ const ActiveOrderScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
         </Text>
       </View>
 
-      {/* Map */}
-      <Map
-        androidView="texture"
-        style={styles.map}
-        mapStyle={OSM_STYLE}
-        attributionEnabled={true}
-        logoEnabled={false}
-        compassEnabled={false}>
-
-        <Camera
-          ref={cameraRef}
-          zoomLevel={14}
-          centerCoordinate={[
-            destCoord.longitude || 73.8567,
-            destCoord.latitude || 18.5204,
-          ]}
-          animationDuration={500}
-        />
-
-        {/* Route polyline — OSRM road-following, bold and dark */}
-        {displayRoute.length >= 2 && (
-          <GeoJSONSource
-            id="active-route"
-            data={{
-              type: 'Feature',
-              properties: {},
-              geometry: {
-                type: 'LineString',
-                coordinates: displayRoute.map(c => [c.longitude, c.latitude]),
-              },
-            }}>
-            <Layer
-              id="active-route-layer"
-              type="line"
-              paint={{
-                'line-color': '#1A1A2E',
-                'line-width': 6,
-              }}
-            />
-          </GeoJSONSource>
-        )}
-
-        {/* Destination marker */}
-        {phase === 'pickup' ? (
-          <Marker
-            id="dest-marker"
-            coordinate={[destCoord.longitude, destCoord.latitude]}>
-            <View style={[styles.destMarker, { backgroundColor: colors.onlineGreen }]}>
-              <Icon name="silverware-fork-knife" size={16} color={colors.white} />
-            </View>
-          </Marker>
-        ) : (
-          <Marker
-            id="dest-marker"
-            coordinate={[destCoord.longitude, destCoord.latitude]}>
-            <RedDropPin />
-          </Marker>
-        )}
-
-        {/* Driver marker */}
-        {location.latitude !== 0 && (
-          <Marker
-            id="driver-marker"
-            coordinate={[location.longitude, location.latitude]}>
-            <View style={styles.riderMarker}>
-              <Icon name="navigation" size={18} color={colors.white} />
-            </View>
-          </Marker>
-        )}
-      </Map>
+      {/* Map — inline WebView with OSM embed, explicit pixel dimensions */}
+      <WebView
+        style={{ position: 'absolute', top: 0, left: 0, width: SCREEN_W, height: SCREEN_H }}
+        source={{
+          uri:
+            'https://www.openstreetmap.org/export/embed.html' +
+            '?bbox=' +
+            [
+              Math.min(destCoord.longitude, location.longitude || 73.8567) - 0.02,
+              Math.min(destCoord.latitude, location.latitude || 18.5204) - 0.02,
+              Math.max(destCoord.longitude, location.longitude || 73.8567) + 0.02,
+              Math.max(destCoord.latitude, location.latitude || 18.5204) + 0.02,
+            ].join('%2C') +
+            '&layer=mapnik' +
+            '&marker=' + (destCoord.latitude || 18.5204) + '%2C' + (destCoord.longitude || 73.8567),
+        }}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        androidLayerType="hardware"
+        mixedContentMode="always"
+      />
 
       {/* Navigate button */}
       <TouchableOpacity style={styles.navigateBtn} onPress={openNavigation} activeOpacity={0.85}>
