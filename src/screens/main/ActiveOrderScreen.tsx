@@ -5,9 +5,8 @@ import {
   StatusBar, Animated, Linking, TextInput, PanResponder,
   Dimensions, Platform,
 } from 'react-native';
-import { Map, Camera, Marker, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
+import LeafletMap from '../../components/LeafletMap';
 
-const OSM_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';

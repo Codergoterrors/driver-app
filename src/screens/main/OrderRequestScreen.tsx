@@ -5,7 +5,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
   StatusBar, Dimensions,
 } from 'react-native';
-import { Map, Camera, Marker, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
+import LeafletMap from '../../components/LeafletMap';
 
 import firestore from '@react-native-firebase/firestore';
 import database from '@react-native-firebase/database';

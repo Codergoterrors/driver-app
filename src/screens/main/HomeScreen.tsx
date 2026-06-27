@@ -14,13 +14,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
-// setAccessToken is now called once in App.tsx - do not call here (causes crash on New Architecture)
-
-
-// Free OpenStreetMap tile style — no API key, no cost
-// Free OpenStreetMap tile style via OpenFreeMap — no API key needed
-const OSM_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+import LeafletMap from '../../components/LeafletMap';
 
 import Geolocation from '@react-native-community/geolocation';
 import firestore from '@react-native-firebase/firestore';
@@ -399,39 +393,25 @@ const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         translucent
       />
 
-      {/* Full Screen OSM Map (MapLibre — free, no API key) */}
+      {/* Full Screen OSM Map using Leaflet.js (WebView) — 100% reliable */}
       <View style={styles.mapContainer}>
-        <Map
-          androidView="texture"
-          mapStyle={OSM_STYLE}
-          onDidFinishLoadingMap={() => setMapReady(true)}
-          attributionEnabled={true}
-          logoEnabled={false}
-          compassEnabled={false}>
-          <Camera
-            ref={cameraRef}
-            zoomLevel={14}
-            centerCoordinate={[
-              location.longitude || 73.8567,
-              location.latitude || 18.5204,
-            ]}
-            animationDuration={500}
-          />
-          {/* Rider location marker */}
-          {location.latitude !== 0 && (
-            <Marker
-              id="rider-location"
-              coordinate={[location.longitude, location.latitude]}>
-              <View
-                style={[
-                  styles.riderMarker,
-                  { transform: [{ rotate: `${location.heading}deg` }] },
-                ]}>
-                <Icon name="navigation" size={24} color={Colors.black} />
-              </View>
-            </Marker>
-          )}
-        </Map>
+        <LeafletMap
+          latitude={location.latitude || 18.5204}
+          longitude={location.longitude || 73.8567}
+          zoom={14}
+          markers={
+            location.latitude !== 0
+              ? [{
+                  id: 'rider',
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                  icon: 'driver',
+                }]
+              : []
+          }
+          onMapReady={() => setMapReady(true)}
+          style={StyleSheet.absoluteFillObject}
+        />
       </View>
 
       {/* Top Bar Overlay */}
